@@ -4,6 +4,7 @@ import {
   normalizeChannel,
   classifyChannel,
   dedupeChannels,
+  dedupeChannelsFast,
   cosineSimilarity,
   detectSuspiciousChannel,
 } from '../worker/services/ai.js';
@@ -17,6 +18,19 @@ describe('ai', () => {
   it('classifies channels', () => {
     assert.equal(classifyChannel('CCTV5 体育'), '体育');
     assert.equal(classifyChannel('凤凰卫视'), '港澳');
+  });
+
+  it('fast dedupe merges by normalized name', () => {
+    const entries = Array.from({ length: 100 }, (_, i) => ({
+      name: i % 10 === 0 ? 'CCTV-1 HD' : `CH${i}`,
+      group: '测试',
+      url: `http://x/${i}`,
+      source: 't',
+      logo: '',
+      tvgId: '',
+    }));
+    const channels = dedupeChannelsFast(entries);
+    assert.ok(channels.length < entries.length);
   });
 
   it('dedupes similar channels', () => {

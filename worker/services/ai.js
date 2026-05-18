@@ -92,8 +92,53 @@ export function cosineSimilarity(a, b) {
   return dot;
 }
 
-/** 基于 embedding 相似度去重并合并多源 */
+/** O(n) 快速去重：按标准化名称合并多源（大列表专用，避免 1102） */
+export function dedupeChannelsFast(entries) {
+  const map = new Map();
+
+  for (const entry of entries) {
+    const normalized = normalizeChannel(entry.name);
+    const key = `${normalized}::${(entry.group || '').slice(0, 32)}`;
+    let ch = map.get(key);
+
+    if (!ch) {
+      const category = classifyChannel(entry.name, entry.group);
+      ch = {
+        name: entry.name,
+        normalized_name: normalized,
+        group: entry.group,
+        logo: entry.logo,
+        tvgId: entry.tvgId,
+        category,
+        region: 'INTL',
+        quality: 'SD',
+        tags: [],
+        sources: [],
+      };
+      map.set(key, ch);
+    }
+
+    const src = streamFromEntry(entry);
+    const dup = ch.sources.some((s) => s.url === src.url);
+    if (!dup && ch.sources.length < config.MAX_SOURCES_PER_CHANNEL) {
+      ch.sources.push(src);
+    }
+  }
+
+  return [...map.values()].map((ch) => {
+    ch.tags = buildChannelTags(ch);
+    ch.region = ch.tags.find((t) => t.startsWith('region:'))?.split(':')[1] || 'INTL';
+    ch.quality = ch.tags.find((t) => t.startsWith('quality:'))?.split(':')[1] || 'SD';
+    return ch;
+  });
+}
+
+/** 基于 embedding 相似度去重并合并多源（小列表使用） */
 export function dedupeChannels(entries, threshold = config.DEDUPE_SIMILARITY_THRESHOLD) {
+  const threshold_fast = config.PIPELINE?.fastDedupeThreshold ?? 500;
+  if (entries.length > threshold_fast) {
+    return dedupeChannelsFast(entries);
+  }
   const groups = [];
 
   for (const entry of entries) {
@@ -169,8 +214,9 @@ export function buildEmbeddingIndex(channels) {
   }));
 }
 
-export async function processChannelsWithAI(entries) {
-  const deduped = dedupeChannels(entries);
+export async function processChannelsWithAI(entries, options = {}) {
+  const useFast = options.fast ?? entries.length > (config.PIPELINE?.fastDedupeThreshold ?? 500);
+  const deduped = useFast ? dedupeChannelsFast(entries) : dedupeChannels(entries);
   return deduped
     .map((ch) => {
       const check = detectSuspiciousChannel(ch);

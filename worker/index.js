@@ -15,7 +15,7 @@ import {
 import { handleStream, handleStreamPlaylist } from './routes/stream.js';
 import { handleAdminApi, handleAdminPage } from './routes/admin.js';
 import { handlePlayerPage } from './routes/player.js';
-import { runFullPipeline } from './services/collector.js';
+import { runFastPipeline } from './services/collector.js';
 import { withRequestContext } from './middleware/request.js';
 import { createLogger } from './utils/logger.js';
 
@@ -89,6 +89,6 @@ export default {
 
   async scheduled(event, env, ctx) {
     log.info('Cron 触发', { cron: event.cron });
-    ctx.waitUntil(runFullPipeline(env));
+    ctx.waitUntil(runFastPipeline(env).catch((e) => console.error('[scheduled]', e)));
   },
 };

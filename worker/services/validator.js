@@ -109,6 +109,64 @@ export async function validateChannelSources(channel, options = {}) {
   };
 }
 
+/** 单频道测速：找到第一个可用源即停止（节省 CPU/时间） */
+export async function validateChannelEarlyExit(channel, options = {}) {
+  const timeout = options.timeout ?? 2500;
+  const sources = [...(channel.sources || [])];
+  const validated = [];
+
+  for (const src of sources) {
+    const result = await validateSource(src.url, { timeout });
+    const health = transitionHealth(src, result);
+    validated.push({ ...src, ...health });
+    if (health.status === 'healthy' || health.status === 'unstable') {
+      break;
+    }
+  }
+
+  validated.sort((a, b) => {
+    const order = { healthy: 0, unstable: 1, unknown: 2, dead: 3 };
+    return (order[a.status] ?? 9) - (order[b.status] ?? 9);
+  });
+
+  return { ...channel, sources: validated };
+}
+
+/**
+ * 轻量批量测速：小批次并发 + 早停，适合 fast 流水线
+ */
+export async function validateChannelsLite(channels, options = {}) {
+  const cfg = options.pipeline ?? {};
+  const maxCh = options.maxChannels ?? cfg.liteValidateMaxChannels ?? 600;
+  const batchSize = options.batchSize ?? cfg.liteValidateBatchSize ?? 15;
+  const timeout = options.timeout ?? cfg.liteValidateTimeoutMs ?? 2500;
+  const earlyExit = options.earlyExit ?? cfg.liteValidateEarlyExit ?? true;
+
+  const toValidate = channels.slice(0, maxCh);
+  const output = [];
+
+  for (let i = 0; i < toValidate.length; i += batchSize) {
+    const batch = toValidate.slice(i, i + batchSize);
+    const done = await Promise.all(
+      batch.map((ch) =>
+        earlyExit
+          ? validateChannelEarlyExit(ch, { timeout })
+          : validateChannelSources(ch, { timeout, concurrency: 2 }),
+      ),
+    );
+    output.push(...done);
+  }
+
+  return output;
+}
+
+/** 仅保留至少有一条可播放源的频道 */
+export function filterPlayableChannels(channels) {
+  return channels.filter((ch) =>
+    (ch.sources || []).some((s) => s.status === 'healthy' || s.status === 'unstable'),
+  );
+}
+
 export async function validateAllChannels(channels, options = {}) {
   const batchSize = options.batchSize ?? config.CRON_BATCH_SIZE;
   const output = [];

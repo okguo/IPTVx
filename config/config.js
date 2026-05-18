@@ -2,9 +2,9 @@ export default {
   SOURCE_LIST: [
     'https://bit.ly/iptv-aptv',
     'https://iptv.yang-1989.eu.org/m3u/Gather.m3u',
-    'https://bit.ly/jsnzkpg',
-    'https://bit.ly/itvlist',
-    'https://bit.ly/suxuang-v4',
+    // 'https://bit.ly/jsnzkpg',
+    // 'https://bit.ly/itvlist',
+    // 'https://bit.ly/suxuang-v4',
     'https://iptv-org.github.io/iptv/index.m3u',
   ],
   EPG_SOURCES: [
@@ -28,12 +28,22 @@ export default {
   CRON_BATCH_SIZE: 20,
   /** 流水线资源上限（防止 6+ 大源合并后触发 Worker 1102 CPU 超限） */
   PIPELINE: {
-    maxRawEntries: 12000,
-    maxChannels: 2500,
-    validateMaxChannels: 400,
-    validateTimeoutMs: 3000,
-    skipEpgOverChannels: 800,
-    skipD1SyncOverChannels: 1500,
+    maxRawEntries: 4000,
+    maxChannels: 800,
+    validateMaxChannels: 0,
+    validateTimeoutMs: 2000,
+    fastDedupeThreshold: 500,
+    skipEpgOverChannels: 500,
+    skipD1SyncOverChannels: 800,
+    skipValidation: false,
+    /** 快速模式下的轻量测速（控制并发，避免 1102） */
+    liteValidate: true,
+    liteValidateMaxChannels: 600,
+    liteValidateTimeoutMs: 2500,
+    liteValidateBatchSize: 15,
+    liteValidateEarlyExit: true,
+    /** 仅将测速通过的频道写入 M3U */
+    playlistOnlyPlayable: true,
   },
   DEDUPE_SIMILARITY_THRESHOLD: 0.82,
   AI: {

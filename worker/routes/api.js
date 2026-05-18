@@ -15,10 +15,14 @@ export async function handleHealth(request, env) {
     channels: 0,
   };
 
+  const channels = await getJSON(env, KV_KEYS.CHANNELS);
+  const playlistReady = (channels?.length ?? 0) > 0;
+
   return Response.json({
     status: 'ok',
     service: 'IPTVx',
     ...health,
+    playlist_ready: health.playlist_ready ?? playlistReady,
     colo: request.cf?.colo,
     country: request.cf?.country,
     isp: request.cf?.asOrganization,

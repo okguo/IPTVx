@@ -1,6 +1,6 @@
 import { getJSON, setJSON, KV_KEYS } from '../utils/cache.js';
 import { requireAuth, AuthError } from '../services/auth.js';
-import { runFullPipeline } from '../services/collector.js';
+import { runFastPipeline, runFullPipeline } from '../services/collector.js';
 import { getMetrics } from '../services/metrics.js';
 import { summarizeHealth } from '../services/validator.js';
 
@@ -36,29 +36,28 @@ export async function handleAdminApi(request, env, ctx) {
 
   if (path === '/api/admin/cron/trigger' && request.method === 'POST') {
     const execCtx = ctx.executionCtx;
-    const sync = url.searchParams.get('sync') === '1';
-
-    if (sync) {
-      const result = await runFullPipeline(env);
-      return Response.json({ ok: true, mode: 'sync', health: result.health });
-    }
+    const mode = url.searchParams.get('mode') || 'fast';
+    const run =
+      mode === 'full'
+        ? () => runFullPipeline(env, { skipValidation: true })
+        : () => runFastPipeline(env);
 
     if (execCtx?.waitUntil) {
-      execCtx.waitUntil(
-        runFullPipeline(env).catch((err) => console.error('[cron/trigger]', err)),
-      );
+      execCtx.waitUntil(run().catch((err) => console.error('[cron/trigger]', err)));
       return Response.json(
         {
           ok: true,
+          version: 3,
           mode: 'background',
-          message: '采集已在后台启动，约 1–3 分钟后刷新 /health 查看结果',
+          pipeline: mode === 'full' ? 'full' : 'fast',
+          message: '采集已在后台启动，约 30–90 秒后刷新 /health',
         },
         { status: 202 },
       );
     }
 
-    const result = await runFullPipeline(env);
-    return Response.json({ ok: true, mode: 'sync', health: result.health });
+    const result = await run();
+    return Response.json({ ok: true, version: 3, mode: 'sync', health: result.health });
   }
 
   if (path === '/api/admin/cron/status' && request.method === 'GET') {

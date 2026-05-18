@@ -4,7 +4,12 @@ import { setKV, setJSON, KV_KEYS } from '../utils/cache.js';
 import { parseM3U, filterInvalidEntries, buildM3U } from '../utils/parser.js';
 import { processChannelsWithAI, buildEmbeddingIndex } from './ai.js';
 import { processChannelsAdvanced } from './aiAdvanced.js';
-import { validateAllChannels, summarizeHealth } from './validator.js';
+import {
+  validateAllChannels,
+  validateChannelsLite,
+  filterPlayableChannels,
+  summarizeHealth,
+} from './validator.js';
 import { generateAndCacheEPG } from './epg.js';
 import { syncChannelsToD1, logCronRun } from './db.js';
 import { createLogger } from '../utils/logger.js';
@@ -12,10 +17,9 @@ import { createLogger } from '../utils/logger.js';
 const log = createLogger('collector');
 const PL = () => config.PIPELINE || {};
 
-/** 并发拉取多源并解析 */
 export async function collectSources() {
   const allEntries = [];
-  const maxRaw = PL().maxRawEntries ?? 12000;
+  const maxRaw = PL().maxRawEntries ?? 4000;
 
   const results = await Promise.allSettled(
     config.SOURCE_LIST.map(async (url) => {
@@ -48,85 +52,144 @@ function sourceLabelFromUrl(url) {
   return 'custom';
 }
 
-/** 未参与 HEAD 测速的源标记为 unknown（仍可播放） */
-function markUnvalidatedSources(channels) {
-  return channels.map((ch) => ({
-    ...ch,
-    sources: (ch.sources || []).map((s) =>
-      s.status && s.status !== 'unknown'
-        ? s
-        : { ...s, status: 'unknown', success_rate: s.success_rate ?? 1, latency: s.latency ?? null },
-    ),
-  }));
+async function applyLiteValidation(channels) {
+  const pipelineCfg = PL();
+  if (pipelineCfg.skipValidation || !pipelineCfg.liteValidate) {
+    return channels;
+  }
+
+  log.info('开始轻量测速', { count: channels.length });
+  const validated = await validateChannelsLite(channels, { pipeline: pipelineCfg });
+  const playable = pipelineCfg.playlistOnlyPlayable
+    ? filterPlayableChannels(validated)
+    : validated;
+
+  log.info('测速完成', {
+    input: channels.length,
+    validated: validated.length,
+    playable: playable.length,
+  });
+  return playable;
 }
 
-/**
- * 完整采集流水线：采集 → AI → 测速（抽样）→ 写 KV
- * 大列表仅对前 validateMaxChannels 个频道做 HEAD，其余保留为 unknown
- */
-export async function runFullPipeline(env, options = {}) {
+async function persistChannels(env, alive, meta = {}) {
+  const playlist = buildM3U(alive, (ch) => {
+    const s =
+      ch.sources?.find((x) => x.status === 'healthy' || x.status === 'unstable') ||
+      ch.sources?.find((x) => x.status !== 'dead') ||
+      ch.sources?.[0];
+    return s?.url;
+  });
+  const health = summarizeHealth(alive);
+  health.pipeline_mode = meta.pipeline_mode || 'fast';
+  health.playlist_ready = alive.length > 0;
+  health.playable_channels = alive.length;
+  if (meta.filtered_out != null) {
+    health.filtered_out = meta.filtered_out;
+  }
+  health.note =
+    meta.note ||
+    (health.healthy + health.unstable > 0
+      ? '已过滤无响应源，M3U 仅含测速通过的频道'
+      : '轻量测速后暂无可用源，请检查 SOURCE_LIST 或稍后重试');
+
+  const embeddings = buildEmbeddingIndex(alive.slice(0, 200));
+
+  await setKV(env, KV_KEYS.PLAYLIST, playlist, config.KV_TTL.playlist);
+  await setJSON(env, KV_KEYS.CHANNELS, alive, 'channels');
+  await setJSON(env, KV_KEYS.HEALTH, health, 'health');
+  await setJSON(env, KV_KEYS.EMBEDDINGS, embeddings, 'embeddings');
+
+  return { channels: alive, health, playlist };
+}
+
+/** 轻量流水线：采集 → 去重 → 轻量测速 → 过滤失效源 */
+export async function runFastPipeline(env) {
   const started = Date.now();
   const pipelineCfg = PL();
-  log.info('开始采集流水线');
+  log.info('开始快速采集流水线');
 
   try {
     const rawEntries = await collectSources();
     log.info('原始条目', { count: rawEntries.length });
 
-    let channels = await processChannelsWithAI(rawEntries);
-    channels = await processChannelsAdvanced(env, channels);
+    let channels = await processChannelsWithAI(rawEntries, { fast: true });
 
-    const maxCh = options.maxChannels ?? pipelineCfg.maxChannels ?? 2500;
+    const maxCh = pipelineCfg.maxChannels ?? 800;
     if (channels.length > maxCh) {
-      log.warn('频道数超限，已截断', { total: channels.length, maxCh });
       channels = channels.slice(0, maxCh);
     }
-    log.info('AI 处理后频道', { count: channels.length });
 
-    const validateLimit = options.validateMaxChannels ?? pipelineCfg.validateMaxChannels ?? 400;
-    const toValidate = channels.slice(0, validateLimit);
-    const rest = channels.slice(validateLimit);
+    const beforeValidate = channels.filter((ch) => ch.sources?.length > 0);
+    const alive = await applyLiteValidation(beforeValidate);
+    const filteredOut = beforeValidate.length - alive.length;
 
-    const validated = await validateAllChannels(toValidate, {
-      timeout: pipelineCfg.validateTimeoutMs ?? 3000,
+    log.info('最终可播放频道', { count: alive.length, filteredOut });
+
+    const result = await persistChannels(env, alive, {
+      pipeline_mode: 'fast-validated',
+      filtered_out: filteredOut,
+      note: `已测速并剔除 ${filteredOut} 个不可用频道，M3U 中保留 ${alive.length} 个`,
     });
-    const aliveValidated = validated.filter((ch) => ch.sources?.some((s) => s.status !== 'dead'));
-    const aliveRest = markUnvalidatedSources(rest).filter((ch) => ch.sources?.length > 0);
-    const alive = [...aliveValidated, ...aliveRest];
+    await logCronRun(env, result, Date.now() - started, 'ok', 'fast_pipeline');
+    return result;
+  } catch (err) {
+    await logCronRun(env, null, Date.now() - started, 'error', String(err));
+    throw err;
+  }
+}
 
-    log.info('测速后可用频道', {
-      count: alive.length,
-      validated: aliveValidated.length,
-      unvalidated: aliveRest.length,
-    });
+export async function runFullPipeline(env, options = {}) {
+  const started = Date.now();
+  const pipelineCfg = PL();
+  const skipValidation = options.skipValidation ?? pipelineCfg.skipValidation ?? false;
+  log.info('开始完整采集流水线', { skipValidation });
 
-    const playlist = buildM3U(alive, (ch) => {
-      const s = ch.sources?.find((x) => x.status !== 'dead') || ch.sources?.[0];
-      return s?.url;
-    });
-    const health = summarizeHealth(alive);
-    const embeddings = buildEmbeddingIndex(alive.slice(0, 500));
+  try {
+    const rawEntries = await collectSources();
+    let channels = await processChannelsWithAI(rawEntries, { fast: true });
 
-    await setKV(env, KV_KEYS.PLAYLIST, playlist, config.KV_TTL.playlist);
-    await setJSON(env, KV_KEYS.CHANNELS, alive, 'channels');
-    await setJSON(env, KV_KEYS.HEALTH, health, 'health');
-    await setJSON(env, KV_KEYS.EMBEDDINGS, embeddings, 'embeddings');
-
-    const epgLimit = pipelineCfg.skipEpgOverChannels ?? 800;
-    if (alive.length <= epgLimit) {
-      await generateAndCacheEPG(env, alive);
-    } else {
-      log.warn('频道过多，跳过本次 EPG 生成', { count: alive.length, epgLimit });
+    if (rawEntries.length <= 1000) {
+      channels = await processChannelsAdvanced(env, channels);
     }
 
-    const d1Limit = pipelineCfg.skipD1SyncOverChannels ?? 1500;
+    const maxCh = pipelineCfg.maxChannels ?? 800;
+    if (channels.length > maxCh) {
+      channels = channels.slice(0, maxCh);
+    }
+
+    let beforeValidate = channels.filter((ch) => ch.sources?.length > 0);
+    let alive;
+
+    if (skipValidation) {
+      alive = beforeValidate;
+    } else if (pipelineCfg.liteValidate) {
+      alive = await applyLiteValidation(beforeValidate);
+    } else {
+      const validateLimit = pipelineCfg.validateMaxChannels ?? 400;
+      const validated = await validateAllChannels(beforeValidate.slice(0, validateLimit), {
+        timeout: pipelineCfg.validateTimeoutMs ?? 2000,
+      });
+      alive = filterPlayableChannels(validated);
+    }
+
+    const filteredOut = beforeValidate.length - alive.length;
+    const result = await persistChannels(env, alive, {
+      pipeline_mode: 'full',
+      filtered_out: filteredOut,
+    });
+
+    const epgLimit = pipelineCfg.skipEpgOverChannels ?? 500;
+    if (alive.length <= epgLimit) {
+      await generateAndCacheEPG(env, alive);
+    }
+
+    const d1Limit = pipelineCfg.skipD1SyncOverChannels ?? 800;
     if (alive.length <= d1Limit) {
       await syncChannelsToD1(env, alive);
     }
 
-    const result = { channels: alive, health, playlist };
     await logCronRun(env, result, Date.now() - started);
-    log.info('流水线完成', health);
     return result;
   } catch (err) {
     await logCronRun(env, null, Date.now() - started, 'error', String(err));
@@ -135,5 +198,5 @@ export async function runFullPipeline(env, options = {}) {
 }
 
 export async function updateKV(env) {
-  return runFullPipeline(env);
+  return runFastPipeline(env);
 }
