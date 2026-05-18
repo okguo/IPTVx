@@ -10,10 +10,12 @@ import { syncChannelsToD1, logCronRun } from './db.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('collector');
+const PL = () => config.PIPELINE || {};
 
 /** 并发拉取多源并解析 */
 export async function collectSources() {
   const allEntries = [];
+  const maxRaw = PL().maxRawEntries ?? 12000;
 
   const results = await Promise.allSettled(
     config.SOURCE_LIST.map(async (url) => {
@@ -32,18 +34,39 @@ export async function collectSources() {
     }
   }
 
+  if (allEntries.length > maxRaw) {
+    log.warn('原始条目超限，已截断', { total: allEntries.length, maxRaw });
+    return allEntries.slice(0, maxRaw);
+  }
   return allEntries;
 }
 
 function sourceLabelFromUrl(url) {
-  if (url.includes('judy-gotv')) return 'judy-gotv';
   if (url.includes('iptv-org')) return 'iptv-org';
+  if (url.includes('yang-1989')) return 'yang-1989';
+  if (url.includes('bit.ly')) return 'bitly';
   return 'custom';
 }
 
-/** 完整采集流水线：采集 → AI → 高级AI → 测速 → 写 KV/D1 */
-export async function runFullPipeline(env) {
+/** 未参与 HEAD 测速的源标记为 unknown（仍可播放） */
+function markUnvalidatedSources(channels) {
+  return channels.map((ch) => ({
+    ...ch,
+    sources: (ch.sources || []).map((s) =>
+      s.status && s.status !== 'unknown'
+        ? s
+        : { ...s, status: 'unknown', success_rate: s.success_rate ?? 1, latency: s.latency ?? null },
+    ),
+  }));
+}
+
+/**
+ * 完整采集流水线：采集 → AI → 测速（抽样）→ 写 KV
+ * 大列表仅对前 validateMaxChannels 个频道做 HEAD，其余保留为 unknown
+ */
+export async function runFullPipeline(env, options = {}) {
   const started = Date.now();
+  const pipelineCfg = PL();
   log.info('开始采集流水线');
 
   try {
@@ -52,23 +75,54 @@ export async function runFullPipeline(env) {
 
     let channels = await processChannelsWithAI(rawEntries);
     channels = await processChannelsAdvanced(env, channels);
+
+    const maxCh = options.maxChannels ?? pipelineCfg.maxChannels ?? 2500;
+    if (channels.length > maxCh) {
+      log.warn('频道数超限，已截断', { total: channels.length, maxCh });
+      channels = channels.slice(0, maxCh);
+    }
     log.info('AI 处理后频道', { count: channels.length });
 
-    channels = await validateAllChannels(channels);
-    const alive = channels.filter((ch) => ch.sources?.some((s) => s.status !== 'dead'));
-    log.info('测速后可用频道', { count: alive.length });
+    const validateLimit = options.validateMaxChannels ?? pipelineCfg.validateMaxChannels ?? 400;
+    const toValidate = channels.slice(0, validateLimit);
+    const rest = channels.slice(validateLimit);
 
-    const playlist = buildM3U(alive, (ch) => ch.sources?.[0]?.url);
+    const validated = await validateAllChannels(toValidate, {
+      timeout: pipelineCfg.validateTimeoutMs ?? 3000,
+    });
+    const aliveValidated = validated.filter((ch) => ch.sources?.some((s) => s.status !== 'dead'));
+    const aliveRest = markUnvalidatedSources(rest).filter((ch) => ch.sources?.length > 0);
+    const alive = [...aliveValidated, ...aliveRest];
+
+    log.info('测速后可用频道', {
+      count: alive.length,
+      validated: aliveValidated.length,
+      unvalidated: aliveRest.length,
+    });
+
+    const playlist = buildM3U(alive, (ch) => {
+      const s = ch.sources?.find((x) => x.status !== 'dead') || ch.sources?.[0];
+      return s?.url;
+    });
     const health = summarizeHealth(alive);
-    const embeddings = buildEmbeddingIndex(alive);
+    const embeddings = buildEmbeddingIndex(alive.slice(0, 500));
 
     await setKV(env, KV_KEYS.PLAYLIST, playlist, config.KV_TTL.playlist);
     await setJSON(env, KV_KEYS.CHANNELS, alive, 'channels');
     await setJSON(env, KV_KEYS.HEALTH, health, 'health');
     await setJSON(env, KV_KEYS.EMBEDDINGS, embeddings, 'embeddings');
 
-    await generateAndCacheEPG(env, alive);
-    await syncChannelsToD1(env, alive);
+    const epgLimit = pipelineCfg.skipEpgOverChannels ?? 800;
+    if (alive.length <= epgLimit) {
+      await generateAndCacheEPG(env, alive);
+    } else {
+      log.warn('频道过多，跳过本次 EPG 生成', { count: alive.length, epgLimit });
+    }
+
+    const d1Limit = pipelineCfg.skipD1SyncOverChannels ?? 1500;
+    if (alive.length <= d1Limit) {
+      await syncChannelsToD1(env, alive);
+    }
 
     const result = { channels: alive, health, playlist };
     await logCronRun(env, result, Date.now() - started);
@@ -80,7 +134,6 @@ export async function runFullPipeline(env) {
   }
 }
 
-/** @deprecated 使用 runFullPipeline */
 export async function updateKV(env) {
   return runFullPipeline(env);
 }

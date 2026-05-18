@@ -1,7 +1,7 @@
 import { recordMetric } from '../services/metrics.js';
 import { resolveAuth } from '../services/auth.js';
 
-export async function withRequestContext(request, env, handler) {
+export async function withRequestContext(request, env, handler, executionCtx = null) {
   const start = Date.now();
   const url = new URL(request.url);
   let error = false;
@@ -14,7 +14,7 @@ export async function withRequestContext(request, env, handler) {
   }
 
   try {
-    const response = await handler(request, env, { auth, start });
+    const response = await handler(request, env, { auth, start, executionCtx });
     return response;
   } catch (err) {
     error = true;

@@ -4,8 +4,8 @@ compatibility_date = "2024-11-01"
 
 [[kv_namespaces]]
 binding = "IPTV_KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+id = "436f40953e5b4f7f874892231ba6c386"
+preview_id = "279e0a25658b45089d78a354fd11c81c"
 
 [triggers]
 crons = ["0 * * * *"]
@@ -13,9 +13,9 @@ crons = ["0 * * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "iptvx-db"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "0677fac8-c346-4545-b184-7fb1fe3231c2"
 
 [vars]
 ENVIRONMENT = "production"
 # 管理后台 API Key（生产环境请使用 wrangler secret put ADMIN_API_KEY）
-ADMIN_API_KEY = "iptvx-admin-dev-key"
+ADMIN_API_KEY = "guolon-iptvx-admin"

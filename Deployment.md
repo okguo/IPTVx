@@ -236,7 +236,34 @@ npm run deploy
 
 ## 八、常见问题
 
-### 8.1 `/iptv.m3u` 返回空或 503
+### 8.1 错误 1102（Worker exceeded CPU time limit）
+
+触发 Cron 或首次生成 M3U 时，若合并了多个超大播放列表并对**全部频道**做 HEAD 测速，会超出 Cloudflare Worker 的 CPU 时间上限。
+
+**现象**：`curl .../api/admin/cron/trigger` 返回 `error code: 1102`，且 `/health` 中 `channels: 0`。
+
+**处理**（本项目已内置）：
+
+- 手动 Cron 默认改为**后台执行**（`waitUntil`），接口立即返回 `202`。
+- 流水线对原始条目 / 频道数 / 测速数量做了上限（见 `config/config.js` 中 `PIPELINE`）。
+- 仅前 400 个频道做 HEAD 测速，其余标记为 `unknown` 仍会写入播放列表。
+
+重新部署后执行：
+
+```bash
+curl -X POST https://你的域名/api/admin/cron/trigger \
+  -H "X-API-Key: 你的_ADMIN_KEY"
+```
+
+约 1–3 分钟后检查：
+
+```bash
+curl https://你的域名/health
+```
+
+若需同步等待完成（可能仍超时，不推荐生产）：`?sync=1`。
+
+### 8.2 `/iptv.m3u` 返回空或 503
 
 - KV 中尚无 `playlist`：等待 Cron 执行，或手动触发 `/api/admin/cron/trigger`。
 - 上游源不可达：检查 `config/config.js` 中 `SOURCE_LIST` 是否可访问。

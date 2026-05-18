@@ -125,12 +125,14 @@ export function summarizeHealth(channels) {
   let healthy = 0;
   let unstable = 0;
   let dead = 0;
+  let unknown = 0;
 
   for (const ch of channels) {
     for (const s of ch.sources || []) {
       if (s.status === 'healthy') healthy++;
       else if (s.status === 'unstable') unstable++;
       else if (s.status === 'dead') dead++;
+      else unknown++;
     }
   }
 
@@ -138,6 +140,7 @@ export function summarizeHealth(channels) {
     healthy,
     unstable,
     dead,
+    unknown,
     channels: channels.length,
     updated_at: new Date().toISOString(),
   };

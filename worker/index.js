@@ -60,7 +60,7 @@ export default {
       const route = matchRoute(url, req.method);
 
       if (route) {
-        return route.handler(req, environment, context);
+        return route.handler(req, environment, { ...context, executionCtx: ctx });
       }
 
       return Response.json(
@@ -84,7 +84,7 @@ export default {
         },
         { status: 404 },
       );
-    });
+    }, ctx);
   },
 
   async scheduled(event, env, ctx) {

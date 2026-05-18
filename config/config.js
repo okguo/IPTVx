@@ -1,6 +1,10 @@
 export default {
   SOURCE_LIST: [
-    'https://cdn.jsdelivr.net/gh/judy-gotv/iptv@main/playlist.m3u',
+    'https://bit.ly/iptv-aptv',
+    'https://iptv.yang-1989.eu.org/m3u/Gather.m3u',
+    'https://bit.ly/jsnzkpg',
+    'https://bit.ly/itvlist',
+    'https://bit.ly/suxuang-v4',
     'https://iptv-org.github.io/iptv/index.m3u',
   ],
   EPG_SOURCES: [
@@ -21,7 +25,16 @@ export default {
     epg: 43200,
     embeddings: 604800,
   },
-  CRON_BATCH_SIZE: 50,
+  CRON_BATCH_SIZE: 20,
+  /** 流水线资源上限（防止 6+ 大源合并后触发 Worker 1102 CPU 超限） */
+  PIPELINE: {
+    maxRawEntries: 12000,
+    maxChannels: 2500,
+    validateMaxChannels: 400,
+    validateTimeoutMs: 3000,
+    skipEpgOverChannels: 800,
+    skipD1SyncOverChannels: 1500,
+  },
   DEDUPE_SIMILARITY_THRESHOLD: 0.82,
   AI: {
     mode: 'rule', // rule | embedding | llm

@@ -35,8 +35,30 @@ export async function handleAdminApi(request, env, ctx) {
   }
 
   if (path === '/api/admin/cron/trigger' && request.method === 'POST') {
+    const execCtx = ctx.executionCtx;
+    const sync = url.searchParams.get('sync') === '1';
+
+    if (sync) {
+      const result = await runFullPipeline(env);
+      return Response.json({ ok: true, mode: 'sync', health: result.health });
+    }
+
+    if (execCtx?.waitUntil) {
+      execCtx.waitUntil(
+        runFullPipeline(env).catch((err) => console.error('[cron/trigger]', err)),
+      );
+      return Response.json(
+        {
+          ok: true,
+          mode: 'background',
+          message: '采集已在后台启动，约 1–3 分钟后刷新 /health 查看结果',
+        },
+        { status: 202 },
+      );
+    }
+
     const result = await runFullPipeline(env);
-    return Response.json({ ok: true, health: result.health });
+    return Response.json({ ok: true, mode: 'sync', health: result.health });
   }
 
   if (path === '/api/admin/cron/status' && request.method === 'GET') {
