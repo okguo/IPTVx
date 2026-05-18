@@ -2,10 +2,10 @@ export default {
   SOURCE_LIST: [
     'https://bit.ly/iptv-aptv',
     'https://iptv.yang-1989.eu.org/m3u/Gather.m3u',
-    // 'https://bit.ly/jsnzkpg',
-    // 'https://bit.ly/itvlist',
-    // 'https://bit.ly/suxuang-v4',
-    'https://iptv-org.github.io/iptv/index.m3u',
+    'https://bit.ly/jsnzkpg',
+    'https://bit.ly/itvlist',
+    'https://bit.ly/suxuang-v4',
+    // 'https://iptv-org.github.io/iptv/index.m3u',
   ],
   EPG_SOURCES: [
     'https://iptv-org.github.io/epg/guides/cn.xml',
