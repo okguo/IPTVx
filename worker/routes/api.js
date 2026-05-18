@@ -1,56 +1,11 @@
-import config from '../../config/config.js';
 import { getJSON, KV_KEYS } from '../utils/cache.js';
 import { summarizeHealth } from '../services/validator.js';
 import { buildM3U } from '../utils/parser.js';
+import { pickBestSource, getClientContext } from '../services/router.js';
+import { proxyStreamUrl, getBaseUrl } from '../services/fallback.js';
+import { getMetrics } from '../services/metrics.js';
 
-/** 根据用户边缘位置选择延迟最低的可用源 */
-export function pickBestSource(channel, request) {
-  const sources = (channel.sources || []).filter((s) => s.status !== 'dead');
-  if (!sources.length) return channel.sources?.[0]?.url;
-
-  const country = request?.cf?.country || 'XX';
-  const colo = request?.cf?.colo || '';
-  const regionHint = config.REGION_COLO_MAP[colo] || colo;
-
-  const scored = sources.map((s) => ({
-    ...s,
-    score: sourceScore(s, country, regionHint),
-  }));
-
-  scored.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    return (a.latency ?? 99999) - (b.latency ?? 99999);
-  });
-
-  return scored[0]?.url;
-}
-
-function sourceScore(source, country, coloRegion) {
-  let score = 0;
-  if (source.status === 'healthy') score += 100;
-  else if (source.status === 'unstable') score += 40;
-
-  score += Math.round((source.success_rate ?? 0) * 30);
-  if (source.latency != null) {
-    score += Math.max(0, 50 - Math.floor(source.latency / 100));
-  }
-
-  const url = (source.url || '').toLowerCase();
-  if (country === 'CN' && (url.includes('.cn') || source.source === 'judy-gotv')) {
-    score += 25;
-  }
-  if (regionHintMatches(source, coloRegion, country)) score += 15;
-
-  return score;
-}
-
-function regionHintMatches(source, coloRegion, country) {
-  if (!coloRegion) return false;
-  const srcRegion = (source.source || '').toLowerCase();
-  if (country === 'CN' && srcRegion.includes('judy')) return true;
-  if (['HK', 'TW', 'HKMO'].includes(coloRegion) && srcRegion.includes('iptv')) return true;
-  return false;
-}
+export { pickBestSource, getClientContext };
 
 export async function handleHealth(request, env) {
   const health = (await getJSON(env, KV_KEYS.HEALTH)) || {
@@ -66,6 +21,7 @@ export async function handleHealth(request, env) {
     ...health,
     colo: request.cf?.colo,
     country: request.cf?.country,
+    isp: request.cf?.asOrganization,
   });
 }
 
@@ -91,6 +47,11 @@ export async function handleStats(env) {
       status: ch.sources?.[0]?.status,
     })),
   });
+}
+
+export async function handleMetrics(env) {
+  const metrics = await getMetrics(env);
+  return Response.json(metrics);
 }
 
 export async function handleDashboard(env) {
@@ -123,6 +84,8 @@ export async function handleDashboard(env) {
   <style>
     body { font-family: system-ui, sans-serif; margin: 24px; background: #0f172a; color: #e2e8f0; }
     h1 { color: #38bdf8; }
+    nav { margin: 16px 0; }
+    nav a { color: #38bdf8; margin-right: 16px; }
     .cards { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
     .card { background: #1e293b; padding: 16px 24px; border-radius: 8px; min-width: 120px; }
     .card strong { font-size: 1.8rem; display: block; }
@@ -132,11 +95,16 @@ export async function handleDashboard(env) {
     .healthy { color: #4ade80; }
     .unstable { color: #fbbf24; }
     .dead { color: #f87171; }
-    .unknown { color: #94a3b8; }
   </style>
 </head>
 <body>
   <h1>IPTVx Dashboard</h1>
+  <nav>
+    <a href="/player">播放器</a>
+    <a href="/admin">管理后台</a>
+    <a href="/api/metrics">监控 API</a>
+    <a href="/api/recommend">推荐 API</a>
+  </nav>
   <div class="cards">
     <div class="card"><span>Healthy</span><strong class="healthy">${health.healthy}</strong></div>
     <div class="card"><span>Unstable</span><strong class="unstable">${health.unstable}</strong></div>
@@ -145,12 +113,8 @@ export async function handleDashboard(env) {
   </div>
   <p>更新于：${health.updated_at || '-'}</p>
   <table>
-    <thead>
-      <tr>
-        <th>频道</th><th>标准化</th><th>分类</th><th>延迟</th><th>状态</th><th>成功率</th><th>源数</th>
-      </tr>
-    </thead>
-    <tbody>${rows || '<tr><td colspan="7">暂无数据，等待 Cron 首次更新</td></tr>'}</tbody>
+    <thead><tr><th>频道</th><th>标准化</th><th>分类</th><th>延迟</th><th>状态</th><th>成功率</th><th>源数</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="7">暂无数据</td></tr>'}</tbody>
   </table>
 </body>
 </html>`;
@@ -168,11 +132,17 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-/** 按地区智能路由生成 M3U */
-export async function buildRoutedPlaylist(env, request) {
+/** 按地区智能路由生成 M3U（支持 fallback 代理 URL） */
+export async function buildRoutedPlaylist(env, request, options = {}) {
   const channels = await getJSON(env, KV_KEYS.CHANNELS);
-  if (channels?.length) {
-    return buildM3U(channels, (ch) => pickBestSource(ch, request));
-  }
-  return null;
+  if (!channels?.length) return null;
+
+  const userPrefs = options.userPrefs || null;
+  const useProxy = options.useProxy ?? false;
+  const baseUrl = getBaseUrl(request);
+
+  return buildM3U(channels, (ch) => {
+    if (useProxy) return proxyStreamUrl(request, ch, baseUrl);
+    return pickBestSource(ch, request, userPrefs);
+  });
 }

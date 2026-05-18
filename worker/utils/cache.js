@@ -6,6 +6,12 @@ export const KV_KEYS = {
   HEALTH: 'health',
   EPG: 'epg',
   EMBEDDINGS: 'embeddings',
+  CRON_STATUS: 'cron:status',
+  CRON_HISTORY: 'cron:history',
+  METRICS_PREFIX: 'metrics:',
+  USER_PREFIX: 'user:',
+  SESSION_PREFIX: 'session:',
+  APIKEY_PREFIX: 'apikey:',
 };
 
 function kv(env) {

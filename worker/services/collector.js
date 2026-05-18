@@ -3,9 +3,12 @@ import { fetchText } from '../utils/fetch.js';
 import { setKV, setJSON, KV_KEYS } from '../utils/cache.js';
 import { parseM3U, filterInvalidEntries, buildM3U } from '../utils/parser.js';
 import { processChannelsWithAI, buildEmbeddingIndex } from './ai.js';
+import { processChannelsAdvanced } from './aiAdvanced.js';
 import { validateAllChannels, summarizeHealth } from './validator.js';
 import { generateAndCacheEPG } from './epg.js';
+import { syncChannelsToD1, logCronRun } from './db.js';
 import { createLogger } from '../utils/logger.js';
+
 const log = createLogger('collector');
 
 /** 并发拉取多源并解析 */
@@ -38,32 +41,43 @@ function sourceLabelFromUrl(url) {
   return 'custom';
 }
 
-/** 完整采集流水线：采集 → AI → 测速 → 写 KV */
+/** 完整采集流水线：采集 → AI → 高级AI → 测速 → 写 KV/D1 */
 export async function runFullPipeline(env) {
+  const started = Date.now();
   log.info('开始采集流水线');
-  const rawEntries = await collectSources();
-  log.info('原始条目', { count: rawEntries.length });
 
-  let channels = await processChannelsWithAI(rawEntries);
-  log.info('AI 处理后频道', { count: channels.length });
+  try {
+    const rawEntries = await collectSources();
+    log.info('原始条目', { count: rawEntries.length });
 
-  channels = await validateAllChannels(channels);
-  const alive = channels.filter((ch) => ch.sources?.some((s) => s.status !== 'dead'));
-  log.info('测速后可用频道', { count: alive.length });
+    let channels = await processChannelsWithAI(rawEntries);
+    channels = await processChannelsAdvanced(env, channels);
+    log.info('AI 处理后频道', { count: channels.length });
 
-  const playlist = buildM3U(alive, (ch) => ch.sources?.[0]?.url);
-  const health = summarizeHealth(alive);
-  const embeddings = buildEmbeddingIndex(alive);
+    channels = await validateAllChannels(channels);
+    const alive = channels.filter((ch) => ch.sources?.some((s) => s.status !== 'dead'));
+    log.info('测速后可用频道', { count: alive.length });
 
-  await setKV(env, KV_KEYS.PLAYLIST, playlist, config.KV_TTL.playlist);
-  await setJSON(env, KV_KEYS.CHANNELS, alive, 'channels');
-  await setJSON(env, KV_KEYS.HEALTH, health, 'health');
-  await setJSON(env, KV_KEYS.EMBEDDINGS, embeddings, 'embeddings');
+    const playlist = buildM3U(alive, (ch) => ch.sources?.[0]?.url);
+    const health = summarizeHealth(alive);
+    const embeddings = buildEmbeddingIndex(alive);
 
-  await generateAndCacheEPG(env, alive);
+    await setKV(env, KV_KEYS.PLAYLIST, playlist, config.KV_TTL.playlist);
+    await setJSON(env, KV_KEYS.CHANNELS, alive, 'channels');
+    await setJSON(env, KV_KEYS.HEALTH, health, 'health');
+    await setJSON(env, KV_KEYS.EMBEDDINGS, embeddings, 'embeddings');
 
-  log.info('流水线完成', health);
-  return { channels: alive, health, playlist };
+    await generateAndCacheEPG(env, alive);
+    await syncChannelsToD1(env, alive);
+
+    const result = { channels: alive, health, playlist };
+    await logCronRun(env, result, Date.now() - started);
+    log.info('流水线完成', health);
+    return result;
+  } catch (err) {
+    await logCronRun(env, null, Date.now() - started, 'error', String(err));
+    throw err;
+  }
 }
 
 /** @deprecated 使用 runFullPipeline */

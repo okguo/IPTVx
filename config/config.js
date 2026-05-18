@@ -43,6 +43,33 @@ export default {
     /请更换源/i,
     /维护中/i,
   ],
+  SAAS: {
+    sessionTtlSeconds: 86400 * 7,
+    defaultRole: 'user',
+    adminApiKeys: [], // 可在 wrangler secret 或环境变量覆盖
+  },
+  ROUTING: {
+    ispBoost: {
+      电信: ['judy-gotv', '.cn'],
+      联通: ['judy-gotv', '.cn'],
+      移动: ['judy-gotv', 'migu'],
+      telecom: ['judy-gotv'],
+      unicom: ['judy-gotv'],
+      mobile: ['judy-gotv'],
+    },
+    countryBoost: {
+      CN: ['judy-gotv', '.cn'],
+      HK: ['iptv-org', 'tvb'],
+      TW: ['iptv-org'],
+    },
+  },
+  METRICS: {
+    retentionDays: 30,
+  },
+  STREAM: {
+    proxyPath: '/api/stream',
+    maxFallbackAttempts: 3,
+  },
   CATEGORY_KEYWORDS: {
     体育: [/体育|足球|篮球|NBA|ESPN|Sport|英超|西甲|F1/i],
     新闻: [/新闻|News|CCTV|央视|BBC|CNN|CNBC/i],
