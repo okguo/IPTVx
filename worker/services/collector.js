@@ -2,7 +2,7 @@ import config from '../../config/config.js';
 import { fetchText } from '../utils/fetch.js';
 import { setKV, setJSON, KV_KEYS } from '../utils/cache.js';
 import { parseM3U, filterInvalidEntries, buildM3U } from '../utils/parser.js';
-import { processChannelsWithAI, buildEmbeddingIndex } from './ai.js';
+import { processChannelsWithAI, buildEmbeddingIndex, channelPriorityScore } from './ai.js';
 import { processChannelsAdvanced } from './aiAdvanced.js';
 import {
   validateAllChannels,
@@ -173,6 +173,7 @@ export async function runFastPipeline(env) {
     log.info('原始条目', { count: rawEntries.length });
 
     let channels = await processChannelsWithAI(rawEntries, { fast: true });
+    channels.sort((a, b) => channelPriorityScore(b) - channelPriorityScore(a));
 
     const maxCh = pipelineCfg.maxChannels ?? 800;
     if (channels.length > maxCh) {
@@ -215,6 +216,7 @@ export async function runFullPipeline(env, options = {}) {
   try {
     const rawEntries = await collectSources();
     let channels = await processChannelsWithAI(rawEntries, { fast: true });
+    channels.sort((a, b) => channelPriorityScore(b) - channelPriorityScore(a));
 
     if (rawEntries.length <= 1000) {
       channels = await processChannelsAdvanced(env, channels);

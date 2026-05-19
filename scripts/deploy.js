@@ -25,7 +25,7 @@ async function triggerBootstrap() {
     return;
   }
 
-  const url = `${baseUrl.replace(/\/+$/, '')}/api/admin/cron/trigger`;
+  const url = `${baseUrl.replace(/\/+$/, '')}/api/admin/cron/trigger?sync=1`;
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'X-API-Key': apiKey },

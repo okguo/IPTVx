@@ -115,7 +115,6 @@ export function isNonChineseEntry(entry) {
   const upper = text.toUpperCase();
 
   if (!text) return false;
-  if (CJK_RE.test(text)) return false;
 
   const allowLatinBrands = config.CHANNEL_FILTER.allowLatinBrands || [];
   if (allowLatinBrands.some((token) => upper.includes(String(token).toUpperCase()))) {
@@ -125,8 +124,17 @@ export function isNonChineseEntry(entry) {
   const blockedGroups = config.CHANNEL_FILTER.blockedGroups || [];
   if (blockedGroups.some((pattern) => pattern.test(group))) return true;
 
+  const blockedCountryHints = config.CHANNEL_FILTER.blockedCountryHints || [];
+  if (blockedCountryHints.some((pattern) => pattern.test(text))) return true;
+
   const blockedNames = config.CHANNEL_FILTER.blockedNames || [];
-  if (blockedNames.some((pattern) => pattern.test(name))) return true;
+  if (blockedNames.some((pattern) => pattern.test(name) || pattern.test(text))) return true;
+
+  const blockedUrlPatterns = config.CHANNEL_FILTER.blockedUrlPatterns || [];
+  const url = `${entry.url || ''}`;
+  if (blockedUrlPatterns.some((pattern) => pattern.test(url))) return true;
+
+  if (CJK_RE.test(text)) return false;
 
   return /^[A-Z0-9\s._+-]+$/i.test(text);
 }

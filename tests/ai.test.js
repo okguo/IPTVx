@@ -8,6 +8,9 @@ import {
   cosineSimilarity,
   detectSuspiciousChannel,
   inferPlaylistGroup,
+  isLowValueChannel,
+  channelPriorityScore,
+  processChannelsWithAI,
 } from '../worker/services/ai.js';
 
 describe('ai', () => {
@@ -20,6 +23,9 @@ describe('ai', () => {
   it('classifies channels', () => {
     assert.equal(classifyChannel('CCTV5 体育'), '央视频道');
     assert.equal(classifyChannel('凤凰卫视'), '港澳台');
+    assert.equal(classifyChannel('湖南卫视', '', { source: 'bitly', url: 'https://example.com/hunan.m3u8' }), '卫视频道');
+    assert.equal(classifyChannel('广东新闻', '广东', { source: 'bitly', url: 'https://example.com/gdnews.m3u8' }), '地方频道');
+    assert.equal(classifyChannel('广东体育', '🔥[三网3]央卫视直播', { source: 'yang-1989', url: 'http://r.jdshipin.com/LiYdg' }), '地方频道');
     assert.equal(
       classifyChannel('咪咕英超', '体育', { source: 'bitly', url: 'https://migu.example/live.m3u8' }),
       '咪咕体育',
@@ -45,8 +51,21 @@ describe('ai', () => {
   it('derives chinese-friendly playlist groups', () => {
     assert.equal(inferPlaylistGroup({ name: 'CCTV1', category: '央视频道' }), '央视频道');
     assert.equal(inferPlaylistGroup({ name: '湖南卫视', category: '卫视频道' }), '卫视频道');
-    assert.equal(inferPlaylistGroup({ name: '广东新闻', category: '地方频道' }), '地方频道');
+    assert.equal(inferPlaylistGroup({ name: '广东新闻', category: '地方频道' }), '地方频道-华南');
     assert.equal(inferPlaylistGroup({ name: '英超直播', category: '体育' }), '体育-足球');
+  });
+
+  it('filters low value special streams and prioritizes tv channels', () => {
+    assert.equal(isLowValueChannel({ name: '刘德华专场', group: '电影直播' }), true);
+    assert.equal(isLowValueChannel({ name: 'CCTV-6电影', group: '央视频道' }), false);
+    assert.ok(
+      channelPriorityScore({ name: 'CCTV-1综合', normalized_name: 'CCTV1', category: '央视频道', sources: [{}, {}], region: 'CN' }) >
+      channelPriorityScore({ name: '刘德华专场', normalized_name: '刘德华专场', category: '影视', sources: [{}], region: 'INTL' }),
+    );
+    assert.ok(
+      channelPriorityScore({ name: '江苏综艺', normalized_name: '江苏综艺', category: '地方频道', sources: [{}, {}], region: 'CN' }) >
+      channelPriorityScore({ name: 'NBA 25', normalized_name: 'NBA25', category: '体育', sources: [{}], region: 'INTL' }),
+    );
   });
 
   it('fast dedupe merges by normalized name', () => {
@@ -89,5 +108,31 @@ describe('ai', () => {
   it('computes cosine similarity', () => {
     const sim = cosineSimilarity([1, 0], [1, 0]);
     assert.equal(sim, 1);
+  });
+
+  it('reclassifies merged channels using final name and filters blocked sources again', async () => {
+    const channels = await processChannelsWithAI([
+      {
+        name: '北京卫视4K',
+        group: '🔥[三网1]央卫视直播',
+        url: 'https://cdn.19891230.eu.org/api/bjws/index.m3u8',
+        source: 'yang-1989',
+        logo: '',
+        tvgId: '北京卫视4K',
+      },
+      {
+        name: 'NBA 25',
+        group: '🏀NBA直播',
+        url: 'http://czstream.com:826/LouCarey/KYsHfE1YLU/119737',
+        source: 'bitly',
+        logo: '',
+        tvgId: '',
+      },
+    ], { fast: true });
+
+    assert.equal(channels.length, 1);
+    assert.equal(channels[0].name, '北京卫视4K');
+    assert.equal(channels[0].category, '卫视频道');
+    assert.equal(channels[0].playlist_group, '卫视频道');
   });
 });

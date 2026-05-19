@@ -63,6 +63,38 @@ http://example.com/radio.mp3
       }),
       false,
     );
+    assert.equal(
+      isNonChineseEntry({
+        name: '美国CABLENEWSNETWORK',
+        group: '新闻',
+        url: 'http://example.com/cnn.m3u8',
+      }),
+      true,
+    );
+    assert.equal(
+      isNonChineseEntry({
+        name: '娱乐专区',
+        group: '直播间',
+        url: 'https://iptv.catvod.com/yy/1509085223',
+      }),
+      true,
+    );
+    assert.equal(
+      isNonChineseEntry({
+        name: 'NBA 25',
+        group: '体育-篮球',
+        url: 'http://czstream.com:826/live/119737',
+      }),
+      true,
+    );
+    assert.equal(
+      isNonChineseEntry({
+        name: '周星驰电影',
+        group: '影视',
+        url: 'http://cdn.jdshipin.com:8880/huya.php?id=11342412',
+      }),
+      true,
+    );
   });
 
   it('builds m3u output', () => {

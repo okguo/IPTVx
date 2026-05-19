@@ -114,19 +114,24 @@ export async function validateChannelEarlyExit(channel, options = {}) {
   const timeout = options.timeout ?? 2500;
   const sources = [...(channel.sources || [])];
   const validated = [];
+  const maxProbe = options.maxProbe ?? config.PIPELINE?.liteValidateProbePerChannel ?? 2;
 
   for (const src of sources) {
     const result = await validateSource(src.url, { timeout });
     const health = transitionHealth(src, result);
     validated.push({ ...src, ...health });
-    if (health.status === 'healthy' || health.status === 'unstable') {
+    const playableCount = validated.filter((s) => s.status === 'healthy' || s.status === 'unstable').length;
+    if (playableCount >= maxProbe) {
       break;
     }
+    if (validated.length >= maxProbe && playableCount > 0) break;
   }
 
   validated.sort((a, b) => {
     const order = { healthy: 0, unstable: 1, unknown: 2, dead: 3 };
-    return (order[a.status] ?? 9) - (order[b.status] ?? 9);
+    const diff = (order[a.status] ?? 9) - (order[b.status] ?? 9);
+    if (diff !== 0) return diff;
+    return (a.latency ?? 99999) - (b.latency ?? 99999);
   });
 
   return { ...channel, sources: validated };
@@ -150,7 +155,10 @@ export async function validateChannelsLite(channels, options = {}) {
     const done = await Promise.all(
       batch.map((ch) =>
         earlyExit
-          ? validateChannelEarlyExit(ch, { timeout })
+          ? validateChannelEarlyExit(ch, {
+              timeout,
+              maxProbe: cfg.liteValidateProbePerChannel ?? 2,
+            })
           : validateChannelSources(ch, { timeout, concurrency: 2 }),
       ),
     );

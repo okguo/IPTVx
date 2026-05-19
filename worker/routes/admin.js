@@ -37,12 +37,13 @@ export async function handleAdminApi(request, env, ctx) {
   if (path === '/api/admin/cron/trigger' && request.method === 'POST') {
     const execCtx = ctx.executionCtx;
     const mode = url.searchParams.get('mode') || 'fast';
+    const sync = url.searchParams.get('sync') === '1';
     const run =
       mode === 'full'
         ? () => runFullPipeline(env)
         : () => runFastPipeline(env);
 
-    if (execCtx?.waitUntil) {
+    if (execCtx?.waitUntil && !sync) {
       execCtx.waitUntil(run().catch((err) => console.error('[cron/trigger]', err)));
       return Response.json(
         {
@@ -57,7 +58,7 @@ export async function handleAdminApi(request, env, ctx) {
     }
 
     const result = await run();
-    return Response.json({ ok: true, version: 3, mode: 'sync', health: result.health });
+    return Response.json({ ok: true, version: 3, mode: 'sync', pipeline: mode, health: result.health });
   }
 
   if (path === '/api/admin/cron/status' && request.method === 'GET') {

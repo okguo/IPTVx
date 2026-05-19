@@ -1,4 +1,5 @@
 import config from '../../config/config.js';
+import { isBroadcastEntry, isNonChineseEntry } from '../utils/parser.js';
 
 const NORMALIZE_PATTERNS = [
   [/CCTV[-\s]*1|央视1|中央1/i, 'CCTV1'],
@@ -43,11 +44,46 @@ export function normalizeChannel(rawName) {
 
 /** 按关键词分类 */
 export function classifyChannel(name, group = '', meta = {}) {
-  const text = `${name} ${group} ${meta.normalized_name || ''} ${meta.source || ''} ${meta.url || ''}`;
+  const identityText = `${name} ${meta.normalized_name || ''} ${meta.tvgId || ''}`.trim();
+  const fullText = `${identityText} ${group} ${meta.source || ''} ${meta.url || ''}`.trim();
+
+  if (/咪咕|migu|miguvideo|cmvideo|咪视界/i.test(fullText) && /体育|足球|篮球|NBA|CBA|英超|西甲|欧冠|亚冠|中超|网球|斯诺克|F1|赛车|高尔夫|搏击|UFC/i.test(fullText)) {
+    return '咪咕体育';
+  }
+  if (/CCTV|央视|CGTN/i.test(identityText)) return '央视频道';
+  if (/\bTVB\b|\bATV\b|明珠|凤凰|凤凰卫视|无线|ViuTV|HOY|澳门|台湾|中视|华视|民视|台视|三立|东森|纬来|中天|耀才|RHK|VIU/i.test(fullText)) {
+    return '港澳台';
+  }
+  if (/卫视/i.test(identityText)) return '卫视频道';
+  if (isRegionalChannelText(identityText, group)) return '地方频道';
+
   for (const rule of config.CATEGORY_RULES || []) {
-    if ((rule.patterns || []).every((p) => p.test(text))) return rule.name;
+    if ((rule.patterns || []).every((p) => p.test(fullText))) return rule.name;
   }
   return '其他';
+}
+
+function isRegionalChannelText(identityText, group = '') {
+  const text = `${identityText} ${group}`;
+  return /(北京|上海|天津|重庆|河北|山西|内蒙古|辽宁|吉林|黑龙江|江苏|浙江|安徽|福建|江西|山东|河南|湖北|湖南|广东|广西|海南|四川|贵州|云南|西藏|陕西|甘肃|青海|宁夏|新疆|深圳|广州|珠海|佛山|东莞|汕头|南宁|海口|南京|苏州|无锡|常州|南通|杭州|宁波|温州|嘉兴|绍兴|金华|合肥|芜湖|福州|厦门|泉州|南昌|赣州|济南|青岛|烟台|郑州|洛阳|武汉|宜昌|长沙|株洲|成都|绵阳|贵阳|昆明|拉萨|西安|宝鸡|兰州|西宁|银川|乌鲁木齐|哈尔滨|长春|沈阳|大连)/i.test(text)
+    && /(台|频道|新闻|综合|公共|都市|生活|影视|文体|科教|少儿|教育|法治|民生|农村|城市|导视|家庭|移动电视|体育|休闲)/i.test(text);
+}
+
+function inferLocalRegion(text) {
+  const REGION_RULES = [
+    ['华北', /北京|天津|河北|山西|内蒙古/i],
+    ['东北', /辽宁|吉林|黑龙江|大连|沈阳|哈尔滨|长春/i],
+    ['华东', /上海|江苏|浙江|安徽|福建|江西|山东|南京|苏州|杭州|宁波|厦门|青岛/i],
+    ['华中', /河南|湖北|湖南|武汉|长沙|郑州/i],
+    ['华南', /广东|广西|海南|深圳|广州|珠海|汕头|佛山|东莞|南宁|海口/i],
+    ['西南', /重庆|四川|贵州|云南|西藏|成都|昆明|贵阳/i],
+    ['西北', /陕西|甘肃|青海|宁夏|新疆|西安|兰州|银川|乌鲁木齐/i],
+  ];
+
+  for (const [region, pattern] of REGION_RULES) {
+    if (pattern.test(text)) return region;
+  }
+  return '综合';
 }
 
 export function inferPlaylistGroup(channel) {
@@ -57,7 +93,7 @@ export function inferPlaylistGroup(channel) {
   if (category === '咪咕体育') return channel.playlist_group || '咪咕体育-综合体育';
   if (category === '央视频道') return '央视频道';
   if (category === '卫视频道') return '卫视频道';
-  if (category === '地方频道') return '地方频道';
+  if (category === '地方频道') return `地方频道-${inferLocalRegion(text)}`;
   if (category === '港澳台') return '港澳台';
 
   if (category === '体育') {
@@ -71,6 +107,57 @@ export function inferPlaylistGroup(channel) {
   if (category === '纪实人文') return '纪实人文';
   if (category === '综艺娱乐') return '综艺娱乐';
   return category || '其他';
+}
+
+export function isLowValueChannel(channel) {
+  const text = `${channel.name || ''} ${channel.group || ''} ${channel.normalized_name || ''}`;
+  const lowValue = config.CHANNEL_FILTER?.lowValueNames || [];
+  const allowSpecials = config.CHANNEL_FILTER?.allowValuableSpecials || [];
+
+  if (!lowValue.some((pattern) => pattern.test(text))) return false;
+  return !allowSpecials.some((pattern) => pattern.test(text));
+}
+
+function isRegionalTvChannel(channel) {
+  const text = `${channel.name || ''} ${channel.group || ''} ${channel.normalized_name || ''}`;
+  return /(北京|上海|天津|重庆|河北|山西|内蒙古|辽宁|吉林|黑龙江|江苏|浙江|安徽|福建|江西|山东|河南|湖北|湖南|广东|广西|海南|四川|贵州|云南|西藏|陕西|甘肃|青海|宁夏|新疆|深圳|广州|珠海|佛山|东莞|汕头|南宁|海口|南京|苏州|无锡|常州|南通|杭州|宁波|温州|嘉兴|绍兴|金华|合肥|芜湖|福州|厦门|泉州|南昌|赣州|济南|青岛|烟台|郑州|洛阳|武汉|宜昌|长沙|株洲|成都|绵阳|贵阳|昆明|拉萨|西安|宝鸡|兰州|西宁|银川|乌鲁木齐|哈尔滨|长春|沈阳|大连)/i.test(text)
+    && /(台|频道|新闻|综合|公共|都市|生活|影视|文体|科教|少儿|教育|法治|民生|农村|城市|导视|家庭|移动电视|体育|休闲)/i.test(text);
+}
+
+function isNamedEventStream(channel) {
+  const text = `${channel.name || ''} ${channel.group || ''} ${channel.normalized_name || ''}`;
+  if (/(CCTV|卫视|频道|电视台|新闻|综合|公共|影视|剧场|咪咕|凤凰|TVB|CHC)/i.test(text)) {
+    return false;
+  }
+  return /(NBA\s*\d+|英超直播|西甲直播|欧冠直播|UFC|老鹰|凯尔特人|篮网|黄蜂|公牛|骑士|独行侠|掘金|活塞|勇士|火箭|步行者|快船|湖人|灰熊|热火|雄鹿|森林狼|鹈鹕|尼克斯|雷霆|魔术|76人|太阳|开拓者|国王|马刺|猛龙|爵士|奇才)/i.test(text);
+}
+
+export function channelPriorityScore(channel) {
+  const category = channel.category || classifyChannel(channel.name, channel.group, channel);
+  let score = 0;
+
+  if (category === '央视频道') score += 1000;
+  else if (category === '卫视频道') score += 900;
+  else if (category === '地方频道') score += 800;
+  else if (category === '港澳台') score += 700;
+  else if (category === '咪咕体育') score += 650;
+  else if (category === '体育') score += 600;
+  else if (category === '新闻') score += 500;
+  else if (category === '影视') score += 400;
+  else if (category === '少儿动漫') score += 300;
+  else if (category === '纪实人文') score += 250;
+  else if (category === '综艺娱乐') score += 200;
+
+  if (/CCTV1|CCTV13|CCTV5\+?|CCTV6|CCTV8|CCTV4/i.test(channel.normalized_name || channel.name || '')) score += 120;
+  if (/卫视/i.test(channel.name || '')) score += 80;
+  if (/新闻综合|都市|公共|经济科教|影视/i.test(channel.name || '')) score += 50;
+  if ((channel.sources?.length || 0) > 1) score += 20;
+  if (channel.region === 'CN') score += 15;
+  if (isRegionalTvChannel(channel)) score += 120;
+  if (isLowValueChannel(channel)) score -= 500;
+  if (isNamedEventStream(channel)) score -= 250;
+
+  return score;
 }
 
 function categoryPriority(category) {
@@ -311,10 +398,17 @@ export function buildEmbeddingIndex(channels) {
 }
 
 export async function processChannelsWithAI(entries, options = {}) {
-  const useFast = options.fast ?? entries.length > (config.PIPELINE?.fastDedupeThreshold ?? 500);
-  const deduped = useFast ? dedupeChannelsFast(entries) : dedupeChannels(entries);
+  const filteredEntries = entries.filter((entry) => !isBroadcastEntry(entry) && !isNonChineseEntry(entry));
+  const useFast = options.fast ?? filteredEntries.length > (config.PIPELINE?.fastDedupeThreshold ?? 500);
+  const deduped = useFast ? dedupeChannelsFast(filteredEntries) : dedupeChannels(filteredEntries);
   return deduped
     .map((ch) => {
+      ch.category = classifyChannel(ch.name, ch.group, {
+        normalized_name: ch.normalized_name,
+        source: (ch.sources || []).map((s) => s.source).join(' '),
+        url: (ch.sources || []).map((s) => s.url).join(' '),
+      });
+      ch.playlist_group = inferPlaylistGroup(ch);
       const check = detectSuspiciousChannel(ch);
       if (check.suspicious) {
         ch.sources = ch.sources.map((s) => ({ ...s, status: 'dead', ai_flag: check.reason }));
@@ -322,5 +416,6 @@ export async function processChannelsWithAI(entries, options = {}) {
       ch.tags = buildChannelTags(ch);
       return ch;
     })
+    .filter((ch) => !isLowValueChannel(ch))
     .filter((ch) => ch.sources.some((s) => s.status !== 'dead'));
 }
