@@ -2,6 +2,32 @@
  * 解析 M3U / M3U8 播放列表为统一频道条目
  * @returns {Array<{name:string,group:string,logo:string,url:string,tvgId:string,source:string}>}
  */
+const BROADCAST_PROTOCOLS = ['udp://', 'rtp://', 'rtsp://', 'igmp://'];
+const BROADCAST_GROUP_PATTERNS = [
+  /广播/i,
+  /电台/i,
+  /\bradio\b/i,
+  /\bfm\b/i,
+  /\bam\b/i,
+  /组播/i,
+  /multicast/i,
+];
+const BROADCAST_NAME_PATTERNS = [
+  /广播/i,
+  /电台/i,
+  /\bradio\b/i,
+  /中国之声/i,
+  /经济之声/i,
+  /音乐之声/i,
+  /交通广播/i,
+  /都市之声/i,
+  /文艺之声/i,
+  /调频/i,
+  /频率/i,
+  /FM\d+(?:\.\d+)?/i,
+  /AM\d+(?:\.\d+)?/i,
+];
+
 export function parseM3U(content, sourceLabel = 'unknown') {
   const lines = content.split(/\r?\n/);
   const entries = [];
@@ -44,15 +70,36 @@ function matchAttr(line, key) {
   return line.match(re)?.[1] ?? '';
 }
 
-/** 过滤 udp/rtp 协议与空 URL */
+/** 过滤空 URL、组播协议及广播/电台类条目，仅保留直播视频源 */
 export function filterInvalidEntries(entries) {
   return entries.filter((e) => {
     const url = (e.url || '').trim();
     if (!url) return false;
     const lower = url.toLowerCase();
-    if (lower.startsWith('udp://') || lower.startsWith('rtp://')) return false;
+    if (BROADCAST_PROTOCOLS.some((protocol) => lower.startsWith(protocol))) return false;
+    if (isBroadcastEntry(e)) return false;
     return true;
   });
+}
+
+export function isBroadcastEntry(entry) {
+  const name = `${entry.name || ''} ${entry.tvgId || ''}`.trim();
+  const group = entry.group || '';
+  const url = (entry.url || '').toLowerCase();
+
+  if (BROADCAST_PROTOCOLS.some((protocol) => url.startsWith(protocol))) {
+    return true;
+  }
+
+  if (BROADCAST_GROUP_PATTERNS.some((pattern) => pattern.test(group))) {
+    return true;
+  }
+
+  if (BROADCAST_NAME_PATTERNS.some((pattern) => pattern.test(name))) {
+    return true;
+  }
+
+  return false;
 }
 
 /** 将频道列表序列化为 M3U */

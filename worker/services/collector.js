@@ -52,24 +52,53 @@ function sourceLabelFromUrl(url) {
   return 'custom';
 }
 
-async function applyLiteValidation(channels) {
+export async function applyLiteValidation(channels) {
   const pipelineCfg = PL();
   if (pipelineCfg.skipValidation || !pipelineCfg.liteValidate) {
-    return channels;
+    return {
+      channels,
+      meta: {
+        validated: 0,
+        skipped_validation: 0,
+        playable_validated: 0,
+        failed_validation: 0,
+      },
+    };
   }
 
-  log.info('开始轻量测速', { count: channels.length });
-  const validated = await validateChannelsLite(channels, { pipeline: pipelineCfg });
-  const playable = pipelineCfg.playlistOnlyPlayable
+  const validateCap = pipelineCfg.liteValidateMaxChannels ?? channels.length;
+  const toValidate = channels.slice(0, validateCap);
+  const skipped = channels.slice(validateCap);
+
+  log.info('开始轻量测速', {
+    count: channels.length,
+    validateCap,
+    skipped: skipped.length,
+  });
+
+  const validated = await validateChannelsLite(toValidate, { pipeline: pipelineCfg });
+  const playableValidated = pipelineCfg.playlistOnlyPlayable
     ? filterPlayableChannels(validated)
     : validated;
+  const combined = [...playableValidated, ...skipped];
 
   log.info('测速完成', {
     input: channels.length,
     validated: validated.length,
-    playable: playable.length,
+    playableValidated: playableValidated.length,
+    skippedValidation: skipped.length,
+    finalChannels: combined.length,
   });
-  return playable;
+
+  return {
+    channels: combined,
+    meta: {
+      validated: validated.length,
+      skipped_validation: skipped.length,
+      playable_validated: playableValidated.length,
+      failed_validation: validated.length - playableValidated.length,
+    },
+  };
 }
 
 async function persistChannels(env, alive, meta = {}) {
@@ -121,15 +150,23 @@ export async function runFastPipeline(env) {
     }
 
     const beforeValidate = channels.filter((ch) => ch.sources?.length > 0);
-    const alive = await applyLiteValidation(beforeValidate);
-    const filteredOut = beforeValidate.length - alive.length;
+    const { channels: alive, meta: validationMeta } = await applyLiteValidation(beforeValidate);
+    const filteredOut = validationMeta.failed_validation ?? (beforeValidate.length - alive.length);
 
-    log.info('最终可播放频道', { count: alive.length, filteredOut });
+    log.info('最终可播放频道', {
+      count: alive.length,
+      filteredOut,
+      skippedValidation: validationMeta.skipped_validation,
+    });
 
     const result = await persistChannels(env, alive, {
       pipeline_mode: 'fast-validated',
       filtered_out: filteredOut,
-      note: `已测速并剔除 ${filteredOut} 个不可用频道，M3U 中保留 ${alive.length} 个`,
+      validated_channels: validationMeta.validated,
+      skipped_validation: validationMeta.skipped_validation,
+      note: validationMeta.skipped_validation
+        ? `已测速 ${validationMeta.validated} 个频道，剔除 ${filteredOut} 个不可用频道，另有 ${validationMeta.skipped_validation} 个频道因快速模式未测速但仍保留在 M3U 中`
+        : `已测速并剔除 ${filteredOut} 个不可用频道，M3U 中保留 ${alive.length} 个`,
     });
     await logCronRun(env, result, Date.now() - started, 'ok', 'fast_pipeline');
     return result;
@@ -164,7 +201,8 @@ export async function runFullPipeline(env, options = {}) {
     if (skipValidation) {
       alive = beforeValidate;
     } else if (pipelineCfg.liteValidate) {
-      alive = await applyLiteValidation(beforeValidate);
+      const liteResult = await applyLiteValidation(beforeValidate);
+      alive = liteResult.channels;
     } else {
       const validateLimit = pipelineCfg.validateMaxChannels ?? 400;
       const validated = await validateAllChannels(beforeValidate.slice(0, validateLimit), {

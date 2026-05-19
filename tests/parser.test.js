@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseM3U, filterInvalidEntries, buildM3U } from '../worker/utils/parser.js';
+import { parseM3U, filterInvalidEntries, buildM3U, isBroadcastEntry } from '../worker/utils/parser.js';
 
 describe('parser', () => {
   const sample = `#EXTM3U
@@ -8,13 +8,15 @@ describe('parser', () => {
 http://example.com/cctv1.m3u8
 #EXTINF:-1 group-title="测试",UDP Channel
 udp://239.0.0.1:1234
+#EXTINF:-1 group-title="广播",中国之声 FM
+http://example.com/radio.mp3
 #EXTINF:-1,Empty URL Channel
 
 `;
 
   it('parses EXTINF entries', () => {
     const entries = parseM3U(sample, 'test');
-    assert.equal(entries.length, 2);
+    assert.equal(entries.length, 3);
     assert.equal(entries[0].name, 'CCTV1');
     assert.equal(entries[0].url, 'http://example.com/cctv1.m3u8');
   });
@@ -23,6 +25,25 @@ udp://239.0.0.1:1234
     const entries = filterInvalidEntries(parseM3U(sample, 'test'));
     assert.equal(entries.length, 1);
     assert.ok(entries[0].url.startsWith('http'));
+  });
+
+  it('detects broadcast entries by metadata', () => {
+    assert.equal(
+      isBroadcastEntry({
+        name: '中国之声 FM',
+        group: '广播',
+        url: 'http://example.com/live.mp3',
+      }),
+      true,
+    );
+    assert.equal(
+      isBroadcastEntry({
+        name: 'CCTV1',
+        group: '央视',
+        url: 'http://example.com/cctv1.m3u8',
+      }),
+      false,
+    );
   });
 
   it('builds m3u output', () => {

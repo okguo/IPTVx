@@ -39,7 +39,7 @@ export default {
     /** 快速模式下的轻量测速（控制并发，避免 1102） */
     liteValidate: true,
     liteValidateMaxChannels: 600,
-    liteValidateTimeoutMs: 2500,
+    liteValidateTimeoutMs: 5000,
     liteValidateBatchSize: 15,
     liteValidateEarlyExit: true,
     /** 仅将测速通过的频道写入 M3U */

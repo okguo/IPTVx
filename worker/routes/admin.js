@@ -39,7 +39,7 @@ export async function handleAdminApi(request, env, ctx) {
     const mode = url.searchParams.get('mode') || 'fast';
     const run =
       mode === 'full'
-        ? () => runFullPipeline(env, { skipValidation: true })
+        ? () => runFullPipeline(env)
         : () => runFastPipeline(env);
 
     if (execCtx?.waitUntil) {
