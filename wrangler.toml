@@ -19,3 +19,4 @@ database_id = "0677fac8-c346-4545-b184-7fb1fe3231c2"
 ENVIRONMENT = "production"
 # 管理后台 API Key（生产环境请使用 wrangler secret put ADMIN_API_KEY）
 ADMIN_API_KEY = "guolon-iptvx-admin"
+IPTVX_BASE_URL = "https://iptvx.yeeook.com"

@@ -4,10 +4,12 @@ import { buildM3U } from '../utils/parser.js';
 import { pickBestSource, getClientContext } from '../services/router.js';
 import { proxyStreamUrl, getBaseUrl } from '../services/fallback.js';
 import { getMetrics } from '../services/metrics.js';
+import { ensureBootstrap } from '../services/bootstrap.js';
 
 export { pickBestSource, getClientContext };
 
-export async function handleHealth(request, env) {
+export async function handleHealth(request, env, ctx = {}) {
+  await ensureBootstrap(env, ctx.executionCtx);
   const health = (await getJSON(env, KV_KEYS.HEALTH)) || {
     healthy: 0,
     unstable: 0,
@@ -23,6 +25,7 @@ export async function handleHealth(request, env) {
     service: 'IPTVx',
     ...health,
     playlist_ready: health.playlist_ready ?? playlistReady,
+    schema_version: health.schema_version ?? null,
     colo: request.cf?.colo,
     country: request.cf?.country,
     isp: request.cf?.asOrganization,

@@ -1,3 +1,5 @@
+import config from '../../config/config.js';
+
 /**
  * 解析 M3U / M3U8 播放列表为统一频道条目
  * @returns {Array<{name:string,group:string,logo:string,url:string,tvgId:string,source:string}>}
@@ -27,6 +29,7 @@ const BROADCAST_NAME_PATTERNS = [
   /FM\d+(?:\.\d+)?/i,
   /AM\d+(?:\.\d+)?/i,
 ];
+const CJK_RE = /[\u3400-\u9fff]/;
 
 export function parseM3U(content, sourceLabel = 'unknown') {
   const lines = content.split(/\r?\n/);
@@ -78,6 +81,7 @@ export function filterInvalidEntries(entries) {
     const lower = url.toLowerCase();
     if (BROADCAST_PROTOCOLS.some((protocol) => lower.startsWith(protocol))) return false;
     if (isBroadcastEntry(e)) return false;
+    if (isNonChineseEntry(e)) return false;
     return true;
   });
 }
@@ -102,6 +106,31 @@ export function isBroadcastEntry(entry) {
   return false;
 }
 
+export function isNonChineseEntry(entry) {
+  if (!config.CHANNEL_FILTER?.chineseRegionOnly) return false;
+
+  const name = `${entry.name || ''}`.trim();
+  const group = `${entry.group || ''}`.trim();
+  const text = `${name} ${group}`.trim();
+  const upper = text.toUpperCase();
+
+  if (!text) return false;
+  if (CJK_RE.test(text)) return false;
+
+  const allowLatinBrands = config.CHANNEL_FILTER.allowLatinBrands || [];
+  if (allowLatinBrands.some((token) => upper.includes(String(token).toUpperCase()))) {
+    return false;
+  }
+
+  const blockedGroups = config.CHANNEL_FILTER.blockedGroups || [];
+  if (blockedGroups.some((pattern) => pattern.test(group))) return true;
+
+  const blockedNames = config.CHANNEL_FILTER.blockedNames || [];
+  if (blockedNames.some((pattern) => pattern.test(name))) return true;
+
+  return /^[A-Z0-9\s._+-]+$/i.test(text);
+}
+
 /** 将频道列表序列化为 M3U */
 export function buildM3U(channels, pickUrl) {
   const lines = ['#EXTM3U'];
@@ -115,7 +144,7 @@ export function buildM3U(channels, pickUrl) {
       attrs.push(`tvg-name="${escapeAttr(ch.normalized_name || ch.name)}"`);
     }
     if (ch.tvgId) attrs.push(`tvg-id="${escapeAttr(ch.tvgId)}"`);
-    const groupTitle = ch.group || ch.category || '其他';
+    const groupTitle = ch.playlist_group || ch.category || ch.group || '其他';
     attrs.push(`group-title="${escapeAttr(groupTitle)}"`);
     if (ch.region) attrs.push(`tvg-country="${escapeAttr(ch.region)}"`);
 

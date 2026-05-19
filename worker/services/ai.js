@@ -5,7 +5,8 @@ const NORMALIZE_PATTERNS = [
   [/CCTV[-\s]*2|央视2|中央2/i, 'CCTV2'],
   [/CCTV[-\s]*3|央视3|中央3/i, 'CCTV3'],
   [/CCTV[-\s]*4|央视4|中央4/i, 'CCTV4'],
-  [/CCTV[-\s]*5\+?|央视5|中央5|体育/i, 'CCTV5'],
+  [/CCTV[-\s]*5\+|央视5\+|中央5\+/i, 'CCTV5+'],
+  [/CCTV[-\s]*5(?!\+)|央视5(?!\+)|中央5(?!\+)/i, 'CCTV5'],
   [/CCTV[-\s]*6|央视6|中央6/i, 'CCTV6'],
   [/CCTV[-\s]*7|央视7|中央7/i, 'CCTV7'],
   [/CCTV[-\s]*8|央视8|中央8/i, 'CCTV8'],
@@ -41,12 +42,91 @@ export function normalizeChannel(rawName) {
 }
 
 /** 按关键词分类 */
-export function classifyChannel(name, group = '') {
-  const text = `${name} ${group}`;
-  for (const [category, patterns] of Object.entries(config.CATEGORY_KEYWORDS)) {
-    if (patterns.some((p) => p.test(text))) return category;
+export function classifyChannel(name, group = '', meta = {}) {
+  const text = `${name} ${group} ${meta.normalized_name || ''} ${meta.source || ''} ${meta.url || ''}`;
+  for (const rule of config.CATEGORY_RULES || []) {
+    if ((rule.patterns || []).every((p) => p.test(text))) return rule.name;
   }
   return '其他';
+}
+
+export function inferPlaylistGroup(channel) {
+  const category = channel.category || classifyChannel(channel.name, channel.group, channel);
+  const text = `${channel.name || ''} ${channel.group || ''} ${channel.normalized_name || ''}`;
+
+  if (category === '咪咕体育') return channel.playlist_group || '咪咕体育-综合体育';
+  if (category === '央视频道') return '央视频道';
+  if (category === '卫视频道') return '卫视频道';
+  if (category === '地方频道') return '地方频道';
+  if (category === '港澳台') return '港澳台';
+
+  if (category === '体育') {
+    if (/足球|英超|西甲|欧冠|亚冠|中超/i.test(text)) return '体育-足球';
+    if (/篮球|NBA|CBA/i.test(text)) return '体育-篮球';
+    return '体育-综合';
+  }
+  if (category === '影视') return '影视';
+  if (category === '新闻') return '新闻';
+  if (category === '少儿动漫') return '少儿动漫';
+  if (category === '纪实人文') return '纪实人文';
+  if (category === '综艺娱乐') return '综艺娱乐';
+  return category || '其他';
+}
+
+function categoryPriority(category) {
+  const index = (config.CATEGORY_RULES || []).findIndex((rule) => rule.name === category);
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+}
+
+function preferValue(current, next) {
+  if (!next) return current;
+  if (!current) return next;
+  if (current.length >= next.length) return current;
+  return next;
+}
+
+function mergeTags(...tagLists) {
+  return [...new Set(tagLists.flat().filter(Boolean))];
+}
+
+function preferPlaylistGroup(channel, entry, incomingCategory) {
+  const explicit = entry.playlist_group || entry.group || '';
+  if (!explicit) return channel.playlist_group || inferPlaylistGroup(channel);
+
+  if (!channel.playlist_group) return explicit;
+  if (incomingCategory === '咪咕体育' && /咪咕体育-/.test(explicit)) return explicit;
+  return channel.playlist_group || inferPlaylistGroup(channel);
+}
+
+function mergeSourceIntoChannel(channel, entry) {
+  const incomingCategory = classifyChannel(entry.name, entry.group, {
+    normalized_name: channel.normalized_name,
+    source: entry.source,
+    url: entry.url,
+  });
+  const currentPriority = categoryPriority(channel.category);
+  const incomingPriority = categoryPriority(incomingCategory);
+
+  channel.name = preferValue(channel.name, entry.name);
+  channel.group = incomingPriority < currentPriority
+    ? preferValue(entry.group, channel.group)
+    : preferValue(channel.group, entry.group);
+  channel.logo = preferValue(channel.logo, entry.logo);
+  channel.tvgId = preferValue(channel.tvgId, entry.tvgId);
+  if (!channel.category || incomingPriority < currentPriority) {
+    channel.category = incomingCategory;
+  }
+  channel.playlist_group = preferPlaylistGroup(channel, entry, incomingCategory);
+
+  const src = streamFromEntry(entry);
+  const dup = channel.sources.some((s) => s.url === src.url);
+  if (!dup && channel.sources.length < config.MAX_SOURCES_PER_CHANNEL) {
+    channel.sources.push(src);
+  }
+
+  channel.tags = mergeTags(channel.tags, buildChannelTags(channel));
+  channel.region = channel.tags.find((t) => t.startsWith('region:'))?.split(':')[1] || 'INTL';
+  channel.quality = channel.tags.find((t) => t.startsWith('quality:'))?.split(':')[1] || 'SD';
 }
 
 /** 自动标签：region / quality / genre */
@@ -66,6 +146,12 @@ export function buildChannelTags(channel) {
 
   const genre = channel.category || classifyChannel(channel.name, channel.group);
   tags.add(`genre:${genre}`);
+  if (genre === '咪咕体育' || /咪咕|migu|miguvideo|cmvideo|咪视界/i.test(`${text} ${(channel.sources || []).map((s) => s.url).join(' ')}`)) {
+    tags.add('provider:migu');
+  }
+  if (channel.playlist_group) {
+    tags.add(`playlist:${channel.playlist_group}`);
+  }
 
   return [...tags];
 }
@@ -98,15 +184,20 @@ export function dedupeChannelsFast(entries) {
 
   for (const entry of entries) {
     const normalized = normalizeChannel(entry.name);
-    const key = `${normalized}::${(entry.group || '').slice(0, 32)}`;
+    const key = normalized;
     let ch = map.get(key);
 
     if (!ch) {
-      const category = classifyChannel(entry.name, entry.group);
+      const category = classifyChannel(entry.name, entry.group, {
+        normalized_name: normalized,
+        source: entry.source,
+        url: entry.url,
+      });
       ch = {
         name: entry.name,
         normalized_name: normalized,
         group: entry.group,
+        playlist_group: entry.playlist_group || entry.group,
         logo: entry.logo,
         tvgId: entry.tvgId,
         category,
@@ -117,15 +208,11 @@ export function dedupeChannelsFast(entries) {
       };
       map.set(key, ch);
     }
-
-    const src = streamFromEntry(entry);
-    const dup = ch.sources.some((s) => s.url === src.url);
-    if (!dup && ch.sources.length < config.MAX_SOURCES_PER_CHANNEL) {
-      ch.sources.push(src);
-    }
+    mergeSourceIntoChannel(ch, entry);
   }
 
   return [...map.values()].map((ch) => {
+    ch.playlist_group = inferPlaylistGroup(ch);
     ch.tags = buildChannelTags(ch);
     ch.region = ch.tags.find((t) => t.startsWith('region:'))?.split(':')[1] || 'INTL';
     ch.quality = ch.tags.find((t) => t.startsWith('quality:'))?.split(':')[1] || 'SD';
@@ -150,19 +237,24 @@ export function dedupeChannels(entries, threshold = config.DEDUPE_SIMILARITY_THR
       const sim = cosineSimilarity(emb, group.embedding);
       const nameMatch = normalized === group.normalized_name;
       if (nameMatch || sim >= threshold) {
-        group.sources.push(streamFromEntry(entry));
+        mergeSourceIntoChannel(group, entry);
         merged = true;
         break;
       }
     }
 
     if (!merged) {
-      const category = classifyChannel(entry.name, entry.group);
+      const category = classifyChannel(entry.name, entry.group, {
+        normalized_name: normalized,
+        source: entry.source,
+        url: entry.url,
+      });
       const tags = buildChannelTags({ name: entry.name, group: entry.group, category });
       groups.push({
         name: entry.name,
         normalized_name: normalized,
         group: entry.group,
+        playlist_group: entry.playlist_group || entry.group,
         logo: entry.logo,
         tvgId: entry.tvgId,
         category,
@@ -175,7 +267,11 @@ export function dedupeChannels(entries, threshold = config.DEDUPE_SIMILARITY_THR
     }
   }
 
-  return groups.map(({ embedding, ...ch }) => ch);
+  return groups.map(({ embedding, ...ch }) => ({
+    ...ch,
+    playlist_group: inferPlaylistGroup(ch),
+    tags: buildChannelTags(ch),
+  }));
 }
 
 function streamFromEntry(entry) {

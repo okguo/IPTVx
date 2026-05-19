@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseM3U, filterInvalidEntries, buildM3U, isBroadcastEntry } from '../worker/utils/parser.js';
+import { parseM3U, filterInvalidEntries, buildM3U, isBroadcastEntry, isNonChineseEntry } from '../worker/utils/parser.js';
 
 describe('parser', () => {
   const sample = `#EXTM3U
@@ -46,6 +46,25 @@ http://example.com/radio.mp3
     );
   });
 
+  it('filters non chinese channels for chinese-focused usage', () => {
+    assert.equal(
+      isNonChineseEntry({
+        name: 'CNN International',
+        group: 'International',
+        url: 'http://example.com/cnn.m3u8',
+      }),
+      true,
+    );
+    assert.equal(
+      isNonChineseEntry({
+        name: 'CCTV NEWS',
+        group: '央视',
+        url: 'http://example.com/cctv-news.m3u8',
+      }),
+      false,
+    );
+  });
+
   it('builds m3u output', () => {
     const m3u = buildM3U(
       [
@@ -54,6 +73,7 @@ http://example.com/radio.mp3
           normalized_name: 'CCTV1',
           group: '央视',
           category: '新闻',
+          playlist_group: '新闻-央视频道',
           sources: [{ url: 'http://a.com/1.m3u8' }],
         },
       ],
@@ -61,5 +81,6 @@ http://example.com/radio.mp3
     );
     assert.match(m3u, /#EXTM3U/);
     assert.match(m3u, /http:\/\/a\.com\/1\.m3u8/);
+    assert.match(m3u, /group-title="新闻-央视频道"/);
   });
 });

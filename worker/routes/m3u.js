@@ -1,5 +1,6 @@
 import { getKV, KV_KEYS } from '../utils/cache.js';
 import { buildRoutedPlaylist } from './api.js';
+import { ensureBootstrap } from '../services/bootstrap.js';
 
 const M3U_HEADERS = {
   'Content-Type': 'application/vnd.apple.mpegurl',
@@ -7,6 +8,7 @@ const M3U_HEADERS = {
 };
 
 export async function handleM3U(request, env, ctx = {}) {
+  await ensureBootstrap(env, ctx.executionCtx);
   const url = new URL(request.url);
   const useProxy = url.searchParams.get('proxy') === '1';
   const userPrefs = ctx.auth?.user?.preferences || null;

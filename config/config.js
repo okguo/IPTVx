@@ -1,4 +1,5 @@
 export default {
+  DATA_SCHEMA_VERSION: 4,
   SOURCE_LIST: [
     'https://bit.ly/iptv-aptv',
     'https://iptv.yang-1989.eu.org/m3u/Gather.m3u',
@@ -7,6 +8,15 @@ export default {
     'https://bit.ly/suxuang-v4',
     // 'https://iptv-org.github.io/iptv/index.m3u',
   ],
+  /**
+   * 仅放置你有权限使用的咪咕体育直播源。
+   * 代码会自动将其归入“咪咕体育”分类，并参与测速/去重/路由。
+   * 支持两种写法：
+   * 1. 字符串 URL：指向一个包含咪咕体育频道的 m3u 地址
+   * 2. 对象：直接声明单条频道，适合手工维护足球/篮球/综合体育分组
+   *    { name: '咪咕英超', subcategory: '足球', url: 'https://...' }
+   */
+  MIGU_SOURCE_LIST: [],
   EPG_SOURCES: [
     'https://iptv-org.github.io/epg/guides/cn.xml',
     'https://iptv-org.github.io/epg/guides/hk.xml',
@@ -44,6 +54,7 @@ export default {
     liteValidateEarlyExit: true,
     /** 仅将测速通过的频道写入 M3U */
     playlistOnlyPlayable: true,
+    autoBootstrapOnRequest: true,
   },
   DEDUPE_SIMILARITY_THRESHOLD: 0.82,
   AI: {
@@ -66,6 +77,63 @@ export default {
     /请更换源/i,
     /维护中/i,
   ],
+  CHANNEL_FILTER: {
+    /** 只保留中文地区高价值频道 */
+    chineseRegionOnly: true,
+    allowLatinBrands: [
+      'CCTV',
+      'CGTN',
+      'TVB',
+      'HOY',
+      'ViuTV',
+      '凤凰',
+      '咪咕',
+      'CHC',
+    ],
+    blockedGroups: [
+      /international/i,
+      /overseas/i,
+      /english/i,
+      /foreign/i,
+      /usa/i,
+      /uk/i,
+      /france/i,
+      /germany/i,
+      /italy/i,
+      /spain/i,
+      /japan/i,
+      /korea/i,
+      /india/i,
+      /arab/i,
+      /music tv/i,
+    ],
+    blockedNames: [
+      /\bBBC\b/i,
+      /\bCNN\b/i,
+      /\bCNBC\b/i,
+      /\bBLOOMBERG\b/i,
+      /\bFOX\b/i,
+      /\bSKY\b/i,
+      /\bHBO\b/i,
+      /\bDISCOVERY\b/i,
+      /\bANIMAL PLANET\b/i,
+      /\bNATIONAL GEOGRAPHIC\b/i,
+      /\bMTV\b/i,
+      /\bESPN\b/i,
+      /\bSTAR SPORTS\b/i,
+      /\bEUROSPORT\b/i,
+      /\bNHK\b/i,
+      /\bKBS\b/i,
+      /\bSBS\b/i,
+      /\bTV5\b/i,
+      /\bTVE\b/i,
+      /\bRAI\b/i,
+      /\bTF1\b/i,
+      /\bZDF\b/i,
+      /\bARD\b/i,
+      /\bAXN\b/i,
+    ],
+  },
   SAAS: {
     sessionTtlSeconds: 86400 * 7,
     defaultRole: 'user',
@@ -93,11 +161,17 @@ export default {
     proxyPath: '/api/stream',
     maxFallbackAttempts: 3,
   },
-  CATEGORY_KEYWORDS: {
-    体育: [/体育|足球|篮球|NBA|ESPN|Sport|英超|西甲|F1/i],
-    新闻: [/新闻|News|CCTV|央视|BBC|CNN|CNBC/i],
-    少儿: [/少儿|儿童|卡通|Cartoon|KAKU|CCTV14|金鹰卡通/i],
-    港澳: [/港澳|TVB|ATV|明珠|凤凰|凤凰卫视|无线|ViuTV|HOY/i],
-    电影: [/电影|影院|Movie|HBO|好莱坞|CHC|IPTV电影/i],
-  },
+  CATEGORY_RULES: [
+    { name: '咪咕体育', patterns: [/咪咕|migu|miguvideo|cmvideo|咪视界/i, /体育|足球|篮球|NBA|CBA|英超|西甲|欧冠|亚冠|中超|网球|斯诺克|F1|赛车|高尔夫|搏击|UFC/i] },
+    { name: '央视频道', patterns: [/CCTV|央视|CGTN/i] },
+    { name: '港澳台', patterns: [/港澳|TVB|ATV|明珠|凤凰|凤凰卫视|无线|ViuTV|HOY|澳门|台湾|中视|华视|民视|台视/i] },
+    { name: '卫视频道', patterns: [/卫视/i] },
+    { name: '地方频道', patterns: [/都市|民生|公共|经济科教|影视剧场|生活频道|新闻综合|影视娱乐|文体|科教|少儿科教|教育频道|法治频道|农村农业|城市频道|睛彩|导视|家庭|移动电视/i] },
+    { name: '体育', patterns: [/体育|足球|篮球|NBA|CBA|英超|西甲|欧冠|亚冠|中超|ESPN|Sport|F1|网球|斯诺克|高尔夫|搏击|UFC/i] },
+    { name: '影视', patterns: [/电影|影院|CHC|影视|电视剧|剧场|影视频道|欢笑剧场|经典剧场/i] },
+    { name: '新闻', patterns: [/新闻|资讯|凤凰资讯|新闻频道|新闻综合/i] },
+    { name: '少儿动漫', patterns: [/少儿|儿童|卡通|动漫|Cartoon|KAKU|CCTV14|金鹰卡通|动画/i] },
+    { name: '纪实人文', patterns: [/纪实|人文|地理|探索|Discovery|National Geographic|求索|风云地理/i] },
+    { name: '综艺娱乐', patterns: [/综艺|娱乐|音乐|演唱会|芒果|Show|MTV/i] },
+  ],
 };

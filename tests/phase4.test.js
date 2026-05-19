@@ -4,6 +4,7 @@ import { rankSources, pickBestSource } from '../worker/services/router.js';
 import { channelId, recommendChannels } from '../worker/services/recommend.js';
 import { detectAdvancedViolations, generateAiEpgTags } from '../worker/services/aiAdvanced.js';
 import { randomApiKey, sha256Hex } from '../worker/utils/crypto.js';
+import { shouldBootstrap } from '../worker/services/bootstrap.js';
 
 describe('phase4', () => {
   const channel = {
@@ -50,5 +51,18 @@ describe('phase4', () => {
     const hash = await sha256Hex('test');
     assert.equal(hash.length, 64);
     assert.ok(randomApiKey().startsWith('iptvx_'));
+  });
+
+  it('requests bootstrap when schema version is missing', async () => {
+    const env = {
+      IPTV_KV: {
+        async get(key) {
+          if (key === 'channels') return JSON.stringify([{ name: 'CCTV1' }]);
+          if (key === 'health') return JSON.stringify({ schema_version: 3 });
+          return null;
+        },
+      },
+    };
+    assert.equal(await shouldBootstrap(env), true);
   });
 });

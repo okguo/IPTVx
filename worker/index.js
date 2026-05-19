@@ -22,8 +22,8 @@ import { createLogger } from './utils/logger.js';
 const log = createLogger('worker');
 
 const ROUTES = [
-  { method: 'GET', path: '/', handler: (req, env, ctx) => handleHealth(req, env) },
-  { method: 'GET', path: '/health', handler: (req, env, ctx) => handleHealth(req, env) },
+  { method: 'GET', path: '/', handler: (req, env, ctx) => handleHealth(req, env, ctx) },
+  { method: 'GET', path: '/health', handler: (req, env, ctx) => handleHealth(req, env, ctx) },
   { method: 'GET', path: '/iptv.m3u', handler: (req, env, ctx) => handleM3U(req, env, ctx) },
   { method: 'GET', path: '/epg.xml', handler: (req, env) => handleEPG(req, env) },
   { method: 'GET', path: '/api/stats', handler: (req, env) => handleStats(env) },

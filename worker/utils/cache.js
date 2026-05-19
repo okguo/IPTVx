@@ -8,6 +8,7 @@ export const KV_KEYS = {
   EMBEDDINGS: 'embeddings',
   CRON_STATUS: 'cron:status',
   CRON_HISTORY: 'cron:history',
+  BOOTSTRAP_STATUS: 'bootstrap:status',
   METRICS_PREFIX: 'metrics:',
   USER_PREFIX: 'user:',
   SESSION_PREFIX: 'session:',

@@ -20,13 +20,17 @@ const PL = () => config.PIPELINE || {};
 export async function collectSources() {
   const allEntries = [];
   const maxRaw = PL().maxRawEntries ?? 4000;
+  const sourceList = [...(config.SOURCE_LIST || []), ...(config.MIGU_SOURCE_LIST || [])];
 
   const results = await Promise.allSettled(
-    config.SOURCE_LIST.map(async (url) => {
-      const label = sourceLabelFromUrl(url);
-      const text = await fetchText(url);
-      const parsed = parseM3U(text, label);
-      return filterInvalidEntries(parsed);
+    sourceList.map(async (item) => {
+      if (typeof item === 'string') {
+        const label = sourceLabelFromUrl(item);
+        const text = await fetchText(item);
+        const parsed = parseM3U(text, label);
+        return filterInvalidEntries(parsed);
+      }
+      return normalizeCuratedSourceItem(item);
     }),
   );
 
@@ -48,8 +52,33 @@ export async function collectSources() {
 function sourceLabelFromUrl(url) {
   if (url.includes('iptv-org')) return 'iptv-org';
   if (url.includes('yang-1989')) return 'yang-1989';
+  if (/migu|miguvideo|aikanvod|cmvideo/i.test(url)) return 'migu';
   if (url.includes('bit.ly')) return 'bitly';
   return 'custom';
+}
+
+function normalizeCuratedSourceItem(item) {
+  if (!item?.url || !item?.name) {
+    throw new Error('invalid curated source item: name and url are required');
+  }
+
+  const category = item.category || '咪咕体育';
+  const subcategory = item.subcategory || '';
+  const playlistGroup = subcategory ? `${category}-${subcategory}` : category;
+
+  return filterInvalidEntries([
+    {
+      name: item.name,
+      group: playlistGroup,
+      category,
+      playlist_group: playlistGroup,
+      logo: item.logo || '',
+      tvgId: item.tvgId || '',
+      url: item.url,
+      source: item.source || sourceLabelFromUrl(item.url),
+      tags: item.tags || [],
+    },
+  ]);
 }
 
 export async function applyLiteValidation(channels) {
@@ -111,6 +140,7 @@ async function persistChannels(env, alive, meta = {}) {
   });
   const health = summarizeHealth(alive);
   health.pipeline_mode = meta.pipeline_mode || 'fast';
+  health.schema_version = config.DATA_SCHEMA_VERSION || 1;
   health.playlist_ready = alive.length > 0;
   health.playable_channels = alive.length;
   if (meta.filtered_out != null) {
