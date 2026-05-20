@@ -20,6 +20,44 @@ describe('ai', () => {
     assert.equal(normalizeChannel('劲爆体育 HD'), '劲爆体育');
   });
 
+  it('normalizes all CCTV channels 1-17', () => {
+    assert.equal(normalizeChannel('CCTV-1综合'), 'CCTV1');
+    assert.equal(normalizeChannel('CCTV-2财经'), 'CCTV2');
+    assert.equal(normalizeChannel('CCTV-3综艺'), 'CCTV3');
+    assert.equal(normalizeChannel('CCTV-4中文国际'), 'CCTV4');
+    assert.equal(normalizeChannel('CCTV-4国际'), 'CCTV4');
+    assert.equal(normalizeChannel('CCTV5+体育赛事'), 'CCTV5+');
+    assert.equal(normalizeChannel('CCTV-5体育'), 'CCTV5');
+    assert.equal(normalizeChannel('CCTV-6电影'), 'CCTV6');
+    assert.equal(normalizeChannel('CCTV-7国防军事'), 'CCTV7');
+    assert.equal(normalizeChannel('CCTV-7军事'), 'CCTV7');
+    assert.equal(normalizeChannel('CCTV-8电视剧'), 'CCTV8');
+    assert.equal(normalizeChannel('CCTV-8K超高清'), 'CCTV8');
+    assert.equal(normalizeChannel('CCTV-9纪录'), 'CCTV9');
+    assert.equal(normalizeChannel('CCTV-10科教'), 'CCTV10');
+    assert.equal(normalizeChannel('CCTV-11戏曲'), 'CCTV11');
+    assert.equal(normalizeChannel('CCTV-12社会与法'), 'CCTV12');
+    assert.equal(normalizeChannel('CCTV-13新闻'), 'CCTV13');
+    assert.equal(normalizeChannel('CCTV-14少儿'), 'CCTV14');
+    assert.equal(normalizeChannel('CCTV-15音乐'), 'CCTV15');
+    assert.equal(normalizeChannel('CCTV-16'), 'CCTV16');
+    assert.equal(normalizeChannel('CCTV-17农业农村'), 'CCTV17');
+    assert.equal(normalizeChannel('CCTV-17农业'), 'CCTV17');
+    assert.equal(normalizeChannel('央视1'), 'CCTV1');
+    assert.equal(normalizeChannel('央视5+'), 'CCTV5+');
+    assert.equal(normalizeChannel('中央13'), 'CCTV13');
+  });
+
+  it('normalizes CGTN channels', () => {
+    assert.equal(normalizeChannel('CGTN西班牙语'), 'CGTN西班牙语');
+    assert.equal(normalizeChannel('CGTN French'), 'CGTN法语');
+    assert.equal(normalizeChannel('CGTN阿拉伯语'), 'CGTN阿拉伯语');
+    assert.equal(normalizeChannel('CGTN Russian'), 'CGTN俄语');
+    assert.equal(normalizeChannel('CGTN纪录'), 'CGTN纪录');
+    assert.equal(normalizeChannel('CGTN Documentary'), 'CGTN纪录');
+    assert.equal(normalizeChannel('CGTN'), 'CGTN');
+  });
+
   it('classifies channels', () => {
     assert.equal(classifyChannel('CCTV5 体育'), '央视频道');
     assert.equal(classifyChannel('凤凰卫视'), '港澳台');
@@ -30,6 +68,25 @@ describe('ai', () => {
       classifyChannel('咪咕英超', '体育', { source: 'bitly', url: 'https://migu.example/live.m3u8' }),
       '咪咕体育',
     );
+  });
+
+  it('classifies satellite TV channels correctly', () => {
+    assert.equal(classifyChannel('湖南卫视'), '卫视频道');
+    assert.equal(classifyChannel('浙江卫视'), '卫视频道');
+    assert.equal(classifyChannel('东方卫视'), '卫视频道');
+    assert.equal(classifyChannel('江苏卫视'), '卫视频道');
+    assert.equal(classifyChannel('北京卫视'), '卫视频道');
+    assert.equal(classifyChannel('广东卫视'), '卫视频道');
+    assert.equal(classifyChannel('深圳卫视'), '卫视频道');
+    assert.equal(classifyChannel('山东卫视'), '卫视频道');
+    assert.equal(classifyChannel('天津卫视'), '卫视频道');
+    assert.equal(classifyChannel('湖北卫视'), '卫视频道');
+    assert.equal(classifyChannel('安徽卫视'), '卫视频道');
+    assert.equal(classifyChannel('重庆卫视'), '卫视频道');
+    assert.equal(classifyChannel('广西卫视'), '卫视频道');
+    assert.equal(classifyChannel('贵州卫视'), '卫视频道');
+    assert.equal(classifyChannel('云南卫视'), '卫视频道');
+    assert.equal(classifyChannel('黑龙江卫视'), '卫视频道');
   });
 
   it('preserves migu sports playlist subgroup', () => {

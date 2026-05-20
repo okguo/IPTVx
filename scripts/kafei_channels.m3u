@@ -1,0 +1,33 @@
+#EXTM3U
+#EXTINF:-1 tvg-logo="https://www.kafeizhibo.com/static/uploads/avatars/default_archor.png?v=1776038324456" group-title="体育-综合",NBA 骑士 vs 尼克斯（中文解说44）
+https://pull.livecdn.cc/public/94067754.m3u8
+#EXTINF:-1 tvg-logo="https://www.kafeizhibo.com/static/uploads/avatars/default_archor.png?v=1776038324456" group-title="体育-足球",NBA 骑士 vs 尼克斯（官方直播10）
+https://pull.livecdn.cc/live/3920789.m3u8
+#EXTINF:-1 tvg-logo="https://www.kafeizhibo.com/static/uploads/avatars/37eb4260d9f240b69dba915066b3b996.png?v=1776038324456" group-title="体育-综合",CCTV5
+https://pull.livecdn.cc/stream/85042987.m3u8
+#EXTINF:-1 tvg-logo="https://www.kafeizhibo.com/static/uploads/avatars/default_archor.png?v=1776038324456" group-title="体育-篮球",NBA 骑士 vs 尼克斯（原声直播48）
+https://pul-tenm.nbs3g.com/live/hd-en-2-3920789.m3u8?txSecret=05ecb909ff361645ecf8da8e684fdc0f&txTime=6A0E5EB2
+#EXTINF:-1 tvg-logo="https://www.kafeizhibo.com/static/uploads/avatars/default_archor.png?v=1776038324456" group-title="体育-足球",美公开赛 奥兰多城 vs 亚特兰大联（官方直播12）
+https://pull.livecdn.cc/live/4542325.m3u8
+#EXTINF:-1 tvg-logo="https://www.kafeizhibo.com/static/uploads/avatars/default_archor.png?v=1776038324456" group-title="体育-足球",自由杯 圣塔菲 vs 普拉滕斯（官方直播6）
+https://pull.livecdn.cc/live/4518329.m3u8
+#EXTINF:-1 tvg-logo="https://www.kafeizhibo.com/static/uploads/avatars/default_archor.png?v=1776038324456" group-title="体育-足球",南球杯 圣保罗 vs 百万富翁（官方直播8）
+https://pull.livecdn.cc/live/4518173.m3u8
+#EXTINF:-1 tvg-logo="https://www.kafeizhibo.com/static/uploads/avatars/default_archor.png?v=1776038324456" group-title="体育-足球",自由杯 拉巴斯准备 vs 米拉索（官方直播7）
+https://pull.livecdn.cc/live/4518354.m3u8
+#EXTINF:-1 tvg-logo="https://www.kafeizhibo.com/static/uploads/avatars/default_archor.png?v=1776038324456" group-title="体育-足球",自由杯 博卡青年 vs 克鲁塞罗（官方直播9）
+https://pull.livecdn.cc/live/4518317.m3u8
+#EXTINF:-1 tvg-logo="https://www.kafeizhibo.com/static/uploads/avatars/default_archor.png?v=1776038324456" group-title="体育-足球",美公开赛 圣路易斯城 vs 休斯敦迪纳摩（官方直播11）
+https://pull.livecdn.cc/live/4542328.m3u8
+#EXTINF:-1 tvg-logo="https://www.kafeizhibo.com/static/uploads/avatars/default_archor.png?v=1776038324456" group-title="体育-篮球",自由杯 拉巴斯准备 vs 米拉索（原声直播4）
+https://pul-tenm.nbs3g.com/live/sd-1-4518354.m3u8?txSecret=c73d41df6514dc7d1c836be4fe0f589f&txTime=6A0E5EB2
+#EXTINF:-1 tvg-logo="https://www.kafeizhibo.com/static/uploads/avatars/default_archor.png?v=1776038324456" group-title="体育-篮球",自由杯 圣塔菲 vs 普拉滕斯（原声直播3）
+https://pul-tenm.nbs3g.com/live/sd-1-4518329.m3u8?txSecret=a9b340fc0a7aafceca94832b2c651516&txTime=6A0E5EB2
+#EXTINF:-1 tvg-logo="https://www.kafeizhibo.com/static/uploads/avatars/default_archor.png?v=1776038324456" group-title="体育-篮球",美公开赛 奥兰多城 vs 亚特兰大联（原声直播41）
+https://pul-tenm.nbs3g.com/live/sd-1-4542325.m3u8?txSecret=f830695efc848fa71d2abba9c4259db4&txTime=6A0E5EB2
+#EXTINF:-1 tvg-logo="https://www.kafeizhibo.com/static/uploads/avatars/default_archor.png?v=1776038324456" group-title="体育-篮球",南球杯 圣保罗 vs 百万富翁（原声直播53）
+https://pul-tenm.nbs3g.com/live/sd-1-4518173.m3u8?txSecret=6798187c9b15ba2805cd2727bffb8fb9&txTime=6A0E5EB2
+#EXTINF:-1 tvg-logo="https://www.kafeizhibo.com/static/uploads/avatars/default_archor.png?v=1776038324456" group-title="体育-篮球",自由杯 博卡青年 vs 克鲁塞罗（原声直播55）
+https://pul-tenm.nbs3g.com/live/sd-1-4518317.m3u8?txSecret=3542ee30f1bf6c85a9f59bba056c4356&txTime=6A0E5EB2
+#EXTINF:-1 tvg-logo="https://www.kafeizhibo.com/static/uploads/avatars/default_archor.png?v=1776038324456" group-title="体育-篮球",美公开赛 圣路易斯城 vs 休斯敦迪纳摩（原声直播62）
+https://pul-tenm.nbs3g.com/live/sd-1-4542328.m3u8?txSecret=9318a7d9d2056390edb0989e95af8f24&txTime=6A0E5EB2

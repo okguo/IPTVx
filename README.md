@@ -1,161 +1,413 @@
-# IPTVx
+# IPTVx — Serverless IPTV Aggregator / 无服务器 IPTV 聚合服务
 
-# **项目目录结构**
+> **A multi-source IPTV aggregation service running entirely on Cloudflare Workers, with AI-powered channel normalization, live sports scraping, and zero hosting cost.**
+>
+> **一个完全运行在 Cloudflare Workers 上的多源 IPTV 聚合服务，具备 AI 频道标准化、体育直播爬取、零托管成本的特性。**
 
-```plain
+[![Deploy to Cloudflare Workers](https://img.shields.io/badge/Deploy-Cloudflare%20Workers-f38020?style=flat-square&logo=cloudflare)](#%E4%B8%80%E9%94%AE%E9%83%A8%E7%BD%B2--one-click-deploy)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=node.js)](https://nodejs.org/)
+
+---
+
+## Features / 功能特性
+
+| 功能 | 说明 | Feature | Description |
+|------|------|---------|-------------|
+| 🔄 **多源聚合** | 自动从 5+ 开源源拉取并合并频道 | 🔄 **Multi-source Aggregation** | Auto-fetch and merge channels from 5+ open sources |
+| 🤖 **AI 频道标准化** | 智能去重、标准化名称（CCTV-1 → CCTV1）、分类归一 | 🤖 **AI Channel Normalization** | Smart dedup, name standardization, category normalization |
+| ⚽ **体育直播爬取** | 定时爬取咖啡直播赛事源，自动归入体育分类 | ⚽ **Live Sports Scraping** | Scheduled scraping of live sports sources, auto-categorized |
+| 📺 **智能分类** | 央视频道 / 卫视频道 / 港澳台 / 体育 / 影视 / 少儿动漫 | 📺 **Smart Categorization** | CCTV / Satellite TV / HK-Macau-TW / Sports / Movies / Kids |
+| 🏷️ **白名单过滤** | 只保留高价值频道，自动剔除低质量/失效频道 | 🏷️ **Whitelist Filtering** | Only keep high-value channels, auto-filter low-quality/dead ones |
+| ⏰ **Cron 自动更新** | 每小时自动刷新频道和源状态 | ⏰ **Cron Auto-refresh** | Hourly auto-refresh of channels and source status |
+| 🌐 **EPG 支持** | 聚合 iptv-org EPG 数据 | 🌐 **EPG Support** | Aggregated iptv-org EPG data |
+| 💾 **零托管成本** | 完全运行在 Cloudflare 免费套餐上 | 💾 **Zero Hosting Cost** | Runs entirely on Cloudflare's free tier |
+
+---
+
+## Architecture / 架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Cloudflare Workers                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
+│  │  /iptv.m3u   │    │   /epg.xml   │    │  /api/stats  │  │
+│  │  M3U 播放列表 │    │  EPG 节目单   │    │  统计接口     │  │
+│  └──────┬───────┘    └──────┬───────┘    └──────┬───────┘  │
+│         │                   │                   │          │
+│  ┌──────▼──────────────────▼───────────────────▼───────┐   │
+│  │              Worker Router (index.js)                │   │
+│  └──────────────────────┬──────────────────────────────┘   │
+│                         │                                  │
+│  ┌──────────────────────▼──────────────────────────────┐   │
+│  │              Collector Service                       │   │
+│  │  ┌────────────┐ ┌────────────┐ ┌────────────────┐   │   │
+│  │  │ 外部 M3U 源 │ │ 咖啡直播 API │ │ 咪咕体育静态源   │   │   │
+│  │  │ 5+ sources │ │ live sports │ │ static sources  │   │   │
+│  │  └────────────┘ └────────────┘ └────────────────┘   │   │
+│  └──────────────────────┬──────────────────────────────┘   │
+│                         │                                  │
+│  ┌──────────────────────▼──────────────────────────────┐   │
+│  │              AI Service (ai.js)                      │   │
+│  │  • 频道名称标准化  • 智能分类  • 去重  • 白名单过滤   │   │
+│  │  • Name normalization • Classification • Dedup       │   │
+│  └──────────────────────┬──────────────────────────────┘   │
+│                         │                                  │
+│  ┌──────────────────────▼──────────────────────────────┐   │
+│  │            KV Cache (IPTV_KV)                        │   │
+│  │  playlist | channels | health | epg                  │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                         ▲                                  │
+│  ┌──────────────────────┴──────────────────────────────┐   │
+│  │         Cron Trigger (每小时 / hourly)                │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Channel Categories / 频道分类
+
+| 分类 Category | 数量 Count | 示例 Examples |
+|---------------|------------|---------------|
+| **央视频道** | 24 | CCTV1 ~ CCTV17, CGTN 系列 |
+| **卫视频道** | 32 | 湖南卫视, 浙江卫视, 东方卫视, 江苏卫视, 北京卫视... |
+| **港澳台** | 16 | 凤凰中文, 凤凰资讯, TVB 翡翠台, TVB 明珠台, HOY 系列 |
+| **体育** | 18+ | NBA/英超/西甲等赛事直播（咖啡直播源实时更新） |
+| **影视** | 4 | CHC 家庭影院, 第一剧场, 风云剧场, 黑莓电影 |
+| **少儿动漫** | 14 | 金鹰卡通, 卡酷少儿, 优漫卡通, CN 卡通... |
+
+---
+
+## Compared to Similar Projects / 与同类项目对比
+
+| 特性 Feature | IPTVx | iptv-org | m3u-to-epg | other-scraper |
+|--------------|-------|----------|------------|---------------|
+| **多源聚合** Multi-source | ✅ 5+ 源自动合并 | ❌ 单源列表 | ❌ | ⚠️ 有限 |
+| **AI 标准化** AI Normalization | ✅ 智能去重/分类 | ❌ 手动维护 | ❌ | ❌ |
+| **体育直播** Live Sports | ✅ 实时爬取 | ❌ | ❌ | ❌ |
+| **白名单过滤** Whitelist | ✅ 只保留高价值频道 | ❌ | ❌ | ❌ |
+| **零成本托管** Zero Cost | ✅ Cloudflare 免费 | ✅ GitHub Pages | ❌ 需自建 | ❌ 需服务器 |
+| **Cron 自动更新** Auto-refresh | ✅ 每小时 | ✅ GitHub Actions | ❌ | ⚠️ |
+| **智能分类** Smart Categories | ✅ 6+ 分类 | ⚠️ 手动分组 | ❌ | ❌ |
+| **频道名称优化** Name Optimization | ✅ 赛事+队伍+主播 | ❌ 原始名称 | ❌ | ❌ |
+| **M3U 输出** M3U Output | ✅ | ✅ | ✅ | ⚠️ |
+| **EPG 支持** EPG | ✅ | ✅ | ✅ | ❌ |
+
+### IPTVx 核心优势 / Key Advantages
+
+1. **赛事信息实时展示** — 频道名称自动格式化为"赛事 主队 vs 客队（主播）"格式
+2. **零运维成本** — 无需服务器，Cloudflare 免费套餐即可运行
+3. **智能质量管控** — 白名单机制确保每个频道都是高价值的
+4. **体育直播优先** — 咖啡直播源实时爬取，NBA/英超/西甲等赛事自动分类
+5. **开发者友好** — 提供 `/api/stats` 等 RESTful API，方便集成
+
+---
+
+## Quick Start / 快速开始
+
+### Subscribe / 订阅
+
+```
+https://<your-domain>/iptv.m3u
+```
+
+直接粘贴到你的 IPTV 播放器中（如 TiviMate、IPTV Pro、Kodi 等）。
+
+### API Endpoints / 接口
+
+| Endpoint | Description / 说明 |
+|----------|-------------------|
+| `GET /iptv.m3u` | M3U 播放列表 / Playlist |
+| `GET /epg.xml` | EPG 节目单 / Electronic Program Guide |
+| `GET /health` | 服务健康状态 / Health check |
+| `GET /api/stats` | 频道统计 / Channel statistics |
+| `GET /api/admin/cron/status` | Cron 执行状态（需 API Key）/ Cron status |
+| `POST /api/admin/cron/trigger` | 手动触发采集（需 API Key）/ Manual trigger |
+
+---
+
+## One-Click Deploy / 一键部署
+
+### Option 1: Deploy via CLI / 命令行部署
+
+```bash
+# 1. Clone the repository / 克隆仓库
+git clone https://github.com/your-username/IPTVx.git
+cd IPTVx
+
+# 2. Install dependencies / 安装依赖
+npm install
+
+# 3. Login to Cloudflare / 登录 Cloudflare
+npx wrangler login
+
+# 4. Create KV namespace / 创建 KV 命名空间
+npx wrangler kv:namespace create IPTV_KV
+
+# 5. Update wrangler.toml with the KV ID / 更新 KV ID
+# Edit kv_namespaces.id in wrangler.toml
+
+# 6. Deploy / 部署
+npm run deploy
+```
+
+### Option 2: Deploy via Cloudflare Dashboard / 控制台部署
+
+1. Fork 此仓库到你的 GitHub 账号
+2. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)
+3. 进入 **Workers & Pages** → **Create Application** → **Connect to Git**
+4. 选择你 Fork 的仓库
+5. 设置构建命令：`npm install`，部署命令：`npx wrangler deploy`
+6. 在 **Settings** → **Variables** 中添加环境变量：
+   - `ADMIN_API_KEY`: 你的管理 API 密钥
+7. 点击 **Deploy**
+
+### Option 3: Deploy via Wrangler CLI (Recommended) / CLI 部署（推荐）
+
+```bash
+# 安装 Wrangler CLI
+npm install -g wrangler
+
+# 登录 Cloudflare
+wrangler login
+
+# 克隆项目
+git clone https://github.com/your-username/IPTVx.git && cd IPTVx
+
+# 安装依赖
+npm install
+
+# 创建 D1 数据库
+wrangler d1 create iptvx-db
+# 复制输出的 database_id 到 wrangler.toml
+
+# 创建 KV 命名空间
+wrangler kv:namespace create IPTV_KV
+# 复制输出的 id 到 wrangler.toml
+
+# 部署
+wrangler deploy
+
+# 验证部署
+curl https://<your-worker>.workers.dev/health
+```
+
+### Post-Deploy Setup / 部署后配置
+
+```bash
+# 1. 手动触发首次采集
+curl -X POST https://<your-domain>/api/admin/cron/trigger \
+  -H "X-API-Key: your-admin-api-key"
+
+# 2. 等待 1-3 分钟后检查状态
+curl https://<your-domain>/health
+
+# 3. 查看频道统计
+curl https://<your-domain>/api/stats
+
+# 4. 获取播放列表
+curl https://<your-domain>/iptv.m3u
+```
+
+---
+
+## Configuration / 配置
+
+### 环境变量 / Environment Variables
+
+| Variable | Description / 说明 | Default |
+|----------|-------------------|---------|
+| `ADMIN_API_KEY` | 管理 API 密钥 / Admin API key | `iptvx-admin-key` |
+| `IPTVX_BASE_URL` | 服务基础 URL / Base URL | `https://iptvx.yeeook.com` |
+
+### 频道白名单 / Channel Whitelist
+
+在 `config/config.js` 中配置要保留的频道：
+
+```javascript
+CHANNEL_WHITELIST: {
+  enabled: true,
+  cctv: ['CCTV1', 'CCTV2', /* ... */],          // 央视频道
+  satellite: ['湖南卫视', '浙江卫视', /* ... */],  // 卫视频道
+  hkmo: ['凤凰中文', 'TVB翡翠台', /* ... */],      // 港澳台
+  sports_patterns: [/CCTV5.*体育/i, /* ... */],   // 体育频道正则
+  movies_patterns: [/CHC.*影院/i, /* ... */],      // 影视频道正则
+  kids_patterns: [/少儿/i, /* ... */],             // 少儿频道正则
+}
+```
+
+### 直播源配置 / Source Configuration
+
+```javascript
+SOURCE_LIST: [
+  'https://raw.githubusercontent.com/Jsnzkpg/Jsnzkpg/Jsnzkpg/Jsnzkpg1.m3u',
+  'https://raw.githubusercontent.com/Kimentanm/aptv/master/m3u/iptv.m3u',
+  'https://iptv.yang-1989.eu.org/m3u/Gather.m3u',
+  // Add more sources here...
+],
+```
+
+### 咖啡直播 / Kafei Live Sports
+
+```javascript
+KAFEI_SOURCE: {
+  enabled: true,
+  apiUrl: 'https://www.kafeizhibo.com/api/v1/archor',
+  crawlIntervalMs: 30 * 60 * 1000, // 30 minutes
+}
+```
+
+---
+
+## Project Structure / 项目结构
+
+```
 IPTVx/
-├─ README.md
-├─ package.json
-├─ wrangler.toml           # Cloudflare Worker 配置
-├─ worker/
-│  ├─ index.js            # Worker 主入口
-│  ├─ routes/
-│  │  ├─ api.js           # API路由
-│  │  ├─ m3u.js           # IPTV m3u生成路由
-│  │  └─ epg.js           # EPG生成路由
-│  ├─ services/
-│  │  ├─ collector.js     # 拉取源/多源聚合
-│  │  ├─ validator.js     # 自动测速/健康检查
-│  │  ├─ ai.js            # AI频道标准化/分类/去重
-│  │  └─ epg.js           # EPG生成逻辑
-│  └─ utils/
-│     ├─ fetch.js         # 通用fetch封装
-│     ├─ cache.js         # KV操作封装
-│     └─ logger.js        # 日志工具
-├─ cron/
-│  └─ updateSources.js    # 定时拉取源/测速/更新KV
-├─ config/
-│  └─ config.js           # 源地址列表、测速策略、EPG源
-└─ tests/                 # 单元测试
+├── config/
+│   └── config.js              # 源列表、白名单、策略配置
+├── cron/
+│   └── updateSources.js       # Cron 定时任务入口
+├── scripts/
+│   ├── crawl-kafei.js         # 咖啡直播爬虫
+│   └── crawl-migu.js          # 咪咕体育爬虫
+├── tests/
+│   ├── ai.test.js             # AI 模块单元测试
+│   ├── parser.test.js         # 解析器单元测试
+│   ├── phase4.test.js         # 高级功能测试
+│   ├── validator-lite.test.js # 轻量测速测试
+│   └── validator.test.js      # 测速模块测试
+├── worker/
+│   ├── index.js               # Worker 主入口 + 路由
+│   ├── routes/
+│   │   ├── api.js             # RESTful API 路由
+│   │   ├── epg.js             # EPG 生成路由
+│   │   └── m3u.js             # M3U 播放列表路由
+│   ├── services/
+│   │   ├── ai.js              # AI 频道标准化/分类/去重
+│   │   ├── aiAdvanced.js      # 高级 AI 处理
+│   │   ├── collector.js       # 多源聚合 + 咖啡直播爬取
+│   │   ├── epg.js             # EPG 生成逻辑
+│   │   └── validator.js       # 频道健康检查/测速
+│   └── utils/
+│       ├── cache.js           # KV 缓存操作
+│       ├── crypto.js          # 加密工具
+│       ├── fetch.js           # Fetch 封装
+│       ├── logger.js          # 日志工具
+│       ├── parser.js          # M3U 解析器
+│       └── validator-lite.js  # 轻量测速
+├── wrangler.toml              # Cloudflare Workers 配置
+├── package.json
+└── README.md
 ```
 
 ---
 
-# **阶段1：基础架构（Worker + KV缓存）**
+## API Documentation / API 文档
 
-### TODO
+### `GET /iptv.m3u`
 
-1. Worker 主入口 `index.js` 搭建
-  - 路由 `/iptv.m3u` 返回 KV 缓存 m3u 
-  - 路由 `/` 返回健康检查
-2. KV 命名空间绑定
-  - 存储 key: `playlist`
-3. Cron 定时触发
-  - 每小时更新 KV
-4. Collector 模块
-  - 拉取 judy-gotv + iptv-org 源 
-  - 合并成统一 m3u
-5. 简单失效过滤
-  - 过滤 udp:// / rtp:// 或空行
+返回 M3U 格式的播放列表。
 
-### 核心伪代码
+**Response Headers / 响应头:**
+```
+Content-Type: application/vnd.apple.mpegurl
+Access-Control-Allow-Origin: *
+```
 
-```plain
-// worker/routes/m3u.js
-import { getKV, setKV } from '../utils/cache.js';
-import { collectSources } from '../services/collector.js';
+### `GET /health`
 
-export async function handleM3U(request, env) {
-    let playlist = await getKV(env, 'playlist');
-    if (!playlist) {
-        playlist = await collectSources();
-        await setKV(env, 'playlist', playlist);
-    }
-    return new Response(playlist, { headers: { 'Content-Type': 'application/vnd.apple.mpegurl' }});
+返回服务健康状态。
+
+**Response / 响应:**
+```json
+{
+  "status": "ok",
+  "channels": 108,
+  "healthy": 0,
+  "unstable": 0,
+  "dead": 0,
+  "unknown": 251,
+  "updated_at": "2026-05-20T01:28:38.226Z",
+  "playlist_ready": true
 }
+```
+
+### `GET /api/stats`
+
+返回频道统计信息。
+
+**Response / 响应:**
+```json
+{
+  "channels": 108,
+  "byCategory": {
+    "央视频道": 24,
+    "卫视频道": 32,
+    "港澳台": 16,
+    "体育": 18,
+    "影视": 4,
+    "少儿动漫": 14
+  },
+  "topChannels": [...]
+}
+```
+
+### `POST /api/admin/cron/trigger`
+
+手动触发采集流水线。
+
+**Headers / 请求头:**
+```
+X-API-Key: your-admin-api-key
 ```
 
 ---
 
-# **阶段2：增强功能（多源 + 自动测速）**
+## FAQ / 常见问题
 
-### TODO
+### Q: 为什么有些频道无法播放？/ Why can't some channels be played?
+A: IPTV 源的可用性取决于源服务器。Cron 每小时自动刷新，失效频道会被自动剔除。
+A: Channel availability depends on source servers. Cron auto-refreshes hourly, dead channels are removed.
 
-1. Validator 模块
-  - HEAD 请求/首包时间测速 
-  - 超时标记失效源
-2. 多源聚合
-  - 每个频道保留 N 个源 
-  - KV 保存源健康分数
-3. 健康状态机
-  - healthy / unstable / dead
-4. 地区智能路由
-  - 根据用户IP返回延迟最低源
-5. Cron 触发测速 & KV更新
-6. Dashboard 页面
-  - 查看源状态 / 延迟 / 健康度
+### Q: 如何添加自定义频道？/ How to add custom channels?
+A: 在 `config/config.js` 的 `MIGU_SOURCE.staticList` 中添加静态源。
+A: Add static sources in `MIGU_SOURCE.staticList` in `config/config.js`.
 
-### 核心伪代码
+### Q: 部署成本是多少？/ What is the deployment cost?
+A: **零成本**。Cloudflare Workers 免费套餐包含 10 万次请求/天，足够个人使用。
+A: **Zero cost**. Cloudflare Workers free tier includes 100K requests/day, sufficient for personal use.
 
-```plain
-// services/validator.js
-export async function validateSource(url) {
-    try {
-        const res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
-        return res.ok ? 'healthy' : 'dead';
-    } catch {
-        return 'dead';
-    }
-}
-```
+### Q: 如何更新源列表？/ How to update source list?
+A: 编辑 `config/config.js` 中的 `SOURCE_LIST`，然后重新部署。
+A: Edit `SOURCE_LIST` in `config/config.js` and redeploy.
 
 ---
 
-# **阶段3：智能化（AI + 自动分类 + EPG）**
+## License / 许可证
 
-### TODO
-
-1. AI 模块 `services/ai.js`
-  - 频道标准化 
-  - 分类（体育 / 新闻 / 少儿 / 港澳 / 电影） 
-  - 去重（embedding similarity）
-2. EPG 模块 `services/epg.js`
-  - 聚合 iptv-org/epg + XMLTV 
-  - 匹配频道名生成 XMLTV
-3. 自动标签系统
-  - region / quality / genre
-4. 失效源 AI 检测
-  - OCR logo / 识别广告台
-5. AI 训练/更新策略
-  - 定期更新 embedding 或分类模型
-
-### 核心伪代码
-
-```plain
-// services/ai.js
-export async function normalizeChannel(rawName) {
-    // 使用 LLM 或 embedding 去重/标准化
-    return await aiModel.normalize(rawName);
-}
-
-export async function classifyChannel(name) {
-    return await aiModel.classify(name); // 返回分类标签
-}
-```
+MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
-# **阶段4：SaaS化 / 高级功能**
+## Star History / Star 趋势
 
-### TODO
+[![Star History Chart](https://api.star-history.com/svg?repos=your-username/IPTVx&type=Date)](https://star-history.com/#your-username/IPTVx&Date)
 
-1. 用户系统
-  - API Key / 登录 / 偏好存储
-2. 个性化推荐
-  - 推荐最优源 / 最佳线路
-3. Web / App 播放端
-  - HLS.js / DPlayer / ArtPlayer
-4. 边缘智能路由
-  - 根据用户地区/ISP优选节点
-5. 日志/监控
-  - 延迟 / 健康度 / 用户访问量
-6. Web后台管理
-  - 频道/源管理 
-  - Cron任务可视化
-7. AI高级功能
-  - OCR识别logo 
-  - 自动检测广告台/违规源 
-  - AI生成EPG & 分类标签
-8. 高级多源 fallback
-  - 主源失败 → 自动切换备用源
+---
 
+## Contributing / 贡献
+
+欢迎提交 Issue 和 Pull Request！ / Issues and Pull Requests are welcome!
+
+---
+
+<div align="center">
+
+**Made with ❤️ for the IPTV community**
+
+[Report Bug](https://github.com/your-username/IPTVx/issues) · [Request Feature](https://github.com/your-username/IPTVx/issues)
+
+</div>

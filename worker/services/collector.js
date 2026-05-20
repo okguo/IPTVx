@@ -42,11 +42,132 @@ export async function collectSources() {
     }
   }
 
+  // 爬取咖啡直播源（体育频道）
+  if (config.KAFEI_SOURCE?.enabled) {
+    try {
+      const kafeiEntries = await fetchKafeiSports();
+      allEntries.push(...kafeiEntries);
+      log.info('咖啡直播源', { count: kafeiEntries.length });
+    } catch (e) {
+      log.warn('咖啡直播源爬取失败', { error: String(e) });
+    }
+  }
+
+  // 添加咪咕体育静态源
+  const miguEntries = getMiguStaticSources();
+  if (miguEntries.length > 0) {
+    allEntries.push(...miguEntries);
+    log.info('咪咕体育源', { count: miguEntries.length });
+  }
+
   if (allEntries.length > maxRaw) {
     log.warn('原始条目超限，已截断', { total: allEntries.length, maxRaw });
     return allEntries.slice(0, maxRaw);
   }
   return allEntries;
+}
+
+/**
+ * 爬取咖啡直播体育频道
+ * API: https://www.kafeizhibo.com/api/v1/archor
+ * 频道名称格式：赛事类型 主队 vs 客队（主播名）
+ */
+async function fetchKafeiSports() {
+  const apiUrl = config.KAFEI_SOURCE.apiUrl;
+  const res = await fetch(apiUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Kafei API error: ${res.status}`);
+  }
+
+  const json = await res.json();
+  if (json.code !== 200) {
+    throw new Error(`Kafei API returned error: ${json.message}`);
+  }
+
+  const archors = json.data || [];
+  const entries = [];
+
+  for (const a of archors) {
+    if (!a.stream_url || (a.status !== 'live' && a.status !== 'online')) continue;
+
+    // 构建频道名称：赛事 主队 vs 客队（主播名）
+    const title = (a.title || '').trim();
+    const archorName = (a.name || '').trim();
+    const league = a.league_name || '';
+    const homeTeam = a.match_info?.home_team || '';
+    const awayTeam = a.match_info?.away_team || '';
+
+    let displayName;
+    if (title && !/^[A-Za-z0-9]+$/.test(title)) {
+      // 标题包含赛事信息
+      displayName = archorName && !/^\d+$/.test(archorName) ? `${title}（${archorName}）` : title;
+    } else if (homeTeam && awayTeam) {
+      // 从 match_info 构建
+      displayName = `${league} ${homeTeam} vs ${awayTeam}`;
+      if (archorName && !/^\d+$/.test(archorName)) displayName += `（${archorName}）`;
+    } else {
+      displayName = archorName || `主播${a.room_id}`;
+    }
+
+    // 分类映射
+    const categoryMap = {
+      0: '体育-综合',
+      1: '体育-足球',
+      2: '体育-篮球',
+      3: '体育-综合',
+    };
+    const category = categoryMap[a.category] || '体育-综合';
+
+    entries.push({
+      name: displayName,
+      group: category,
+      category: '体育',
+      playlist_group: category,
+      logo: a.avatar ? `https://www.kafeizhibo.com${a.avatar}` : '',
+      tvgId: '',
+      url: a.stream_url,
+      source: 'kafei',
+      meta: {
+        league,
+        title: a.title || '',
+        homeTeam,
+        awayTeam,
+        heat: a.heat || 0,
+      },
+    });
+  }
+
+  return entries;
+}
+
+/**
+ * 获取咪咕体育静态源列表
+ */
+function getMiguStaticSources() {
+  const miguConfig = config.MIGU_SOURCE;
+  if (!miguConfig?.enabled) return [];
+
+  const staticList = miguConfig.staticList || [];
+  return staticList.map((item) => ({
+    name: item.name,
+    group: item.category || '咪咕体育',
+    category: '体育',
+    playlist_group: item.category || '咪咕体育',
+    logo: item.logo || '',
+    tvgId: '',
+    url: item.url,
+    source: 'migu',
+    meta: {
+      league: item.league || '',
+      homeTeam: item.homeTeam || '',
+      awayTeam: item.awayTeam || '',
+    },
+  }));
 }
 
 function sourceLabelFromUrl(url) {
@@ -106,9 +227,24 @@ export async function applyLiteValidation(channels) {
   });
 
   const validated = await validateChannelsLite(toValidate, { pipeline: pipelineCfg });
-  const playableValidated = pipelineCfg.playlistOnlyPlayable
-    ? filterPlayableChannels(validated)
-    : validated;
+
+  let playableValidated;
+  if (pipelineCfg.playlistOnlyPlayable) {
+    // 重要频道（央视频道/卫视频道/港澳台）即使测速失败也保留
+    const preserveCats = new Set(pipelineCfg.preserveCategories || []);
+    if (preserveCats.size > 0) {
+      const importantChannels = validated.filter((ch) => preserveCats.has(ch.category));
+      const otherPlayable = filterPlayableChannels(
+        validated.filter((ch) => !preserveCats.has(ch.category)),
+      );
+      playableValidated = [...importantChannels, ...otherPlayable];
+    } else {
+      playableValidated = filterPlayableChannels(validated);
+    }
+  } else {
+    playableValidated = validated;
+  }
+
   const combined = [...playableValidated, ...skipped];
 
   log.info('测速完成', {
@@ -132,11 +268,24 @@ export async function applyLiteValidation(channels) {
 
 async function persistChannels(env, alive, meta = {}) {
   const playlist = buildM3U(alive, (ch) => {
-    const s =
-      ch.sources?.find((x) => x.status === 'healthy' || x.status === 'unstable') ||
-      ch.sources?.find((x) => x.status !== 'dead') ||
-      ch.sources?.[0];
-    return s?.url;
+    // 优先选择策略：healthy/unstable 的 HTTPS 源 > healthy/unstable 的 HTTP 源 > 其他
+    const httpsSources = ch.sources?.filter((x) => x.url.startsWith('https://')) || [];
+    const httpSources = ch.sources?.filter((x) => x.url.startsWith('http://')) || [];
+    
+    // 先找健康的 HTTPS 源
+    const healthyHttps = httpsSources.find((x) => x.status === 'healthy' || x.status === 'unstable');
+    if (healthyHttps) return healthyHttps.url;
+    
+    // 再找健康的 HTTP 源
+    const healthyHttp = httpSources.find((x) => x.status === 'healthy' || x.status === 'unstable');
+    if (healthyHttp) return healthyHttp.url;
+    
+    // 最后兜底：任意非 dead 源
+    const nonDead = ch.sources?.find((x) => x.status !== 'dead');
+    if (nonDead) return nonDead.url;
+    
+    // 最终兜底：第一个源
+    return ch.sources?.[0]?.url;
   });
   const health = summarizeHealth(alive);
   health.pipeline_mode = meta.pipeline_mode || 'fast';
@@ -173,6 +322,53 @@ export async function runFastPipeline(env) {
     log.info('原始条目', { count: rawEntries.length });
 
     let channels = await processChannelsWithAI(rawEntries, { fast: true });
+
+    // 白名单过滤：只保留核心频道
+    const whitelist = config.CHANNEL_WHITELIST;
+    if (whitelist?.enabled) {
+      const beforeWhitelist = channels.length;
+      channels = channels.filter((ch) => {
+        const cat = ch.category || '';
+        const name = ch.normalized_name || ch.name || '';
+
+        // 央视频道：精确匹配标准化名称
+        if (cat === '央视频道') {
+          return (whitelist.cctv || []).some((w) => name.toUpperCase().includes(w.toUpperCase()));
+        }
+
+        // 卫视频道：包含关键词即可
+        if (cat === '卫视频道') {
+          return (whitelist.satellite || []).some((w) => name.includes(w));
+        }
+
+        // 港澳台：包含关键词即可
+        if (cat === '港澳台') {
+          return (whitelist.hkmo || []).some((w) => name.includes(w));
+        }
+
+        // 体育频道：匹配正则模式 或 来自咖啡直播源
+        if (cat === '体育') {
+          const isKafei = ch.sources?.some((s) => s.source === 'kafei') || ch.source === 'kafei';
+          if (isKafei) return true; // 咖啡直播源直接通过
+          return (whitelist.sports_patterns || []).some((p) => p.test(name));
+        }
+
+        // 影视频道：匹配正则模式
+        if (cat === '影视') {
+          return (whitelist.movies_patterns || []).some((p) => p.test(name));
+        }
+
+        // 少儿动漫：匹配正则模式
+        if (cat === '少儿动漫') {
+          return (whitelist.kids_patterns || []).some((p) => p.test(name));
+        }
+
+        // 其他分类：不保留（只保留上述分类）
+        return false;
+      });
+      log.info('白名单过滤', { before: beforeWhitelist, after: channels.length });
+    }
+
     channels.sort((a, b) => channelPriorityScore(b) - channelPriorityScore(a));
 
     const maxCh = pipelineCfg.maxChannels ?? 800;

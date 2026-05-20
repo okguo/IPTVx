@@ -19,11 +19,15 @@ describe('validator lite', () => {
   it('keeps channels skipped by lite validation cap', async () => {
     const originalCap = config.PIPELINE.liteValidateMaxChannels;
     const originalTimeout = config.PIPELINE.liteValidateTimeoutMs;
+    const originalSkip = config.PIPELINE.skipValidation;
+    const originalLiteValidate = config.PIPELINE.liteValidate;
     const originalFetch = globalThis.fetch;
 
     try {
       config.PIPELINE.liteValidateMaxChannels = 1;
       config.PIPELINE.liteValidateTimeoutMs = 10;
+      config.PIPELINE.skipValidation = false; // 临时关闭 skipValidation 以测试测速逻辑
+      config.PIPELINE.liteValidate = true; // 开启轻量测速
 
       globalThis.fetch = async (url) => {
         if (String(url).includes('good.example')) {
@@ -53,6 +57,8 @@ describe('validator lite', () => {
     } finally {
       config.PIPELINE.liteValidateMaxChannels = originalCap;
       config.PIPELINE.liteValidateTimeoutMs = originalTimeout;
+      config.PIPELINE.skipValidation = originalSkip;
+      config.PIPELINE.liteValidate = originalLiteValidate;
       globalThis.fetch = originalFetch;
     }
   });

@@ -2,40 +2,40 @@ import config from '../../config/config.js';
 import { fetchWithTimeout } from '../utils/fetch.js';
 
 /**
- * 测速单条源：HEAD 优先，不支持则 Range GET 测首包
+ * 测速单条源：GET 测首包时间（HLS/m3u8 不支持 HEAD）
+ * 对 m3u8 流，只请求前 1KB 数据来验证可用性
  */
 export async function validateSource(url, options = {}) {
   const timeout = options.timeout ?? config.VALIDATE_TIMEOUT_MS;
   const start = Date.now();
 
   try {
+    // HLS/m3u8 流通常不支持 HEAD，直接用 GET 测首包
     const res = await fetch(url, {
-      method: 'HEAD',
+      method: 'GET',
       signal: AbortSignal.timeout(timeout),
       redirect: 'follow',
+      cf: {
+        cacheTtl: 0, // 不缓存测速请求
+        // 尽量使用 Cloudflare 的优化路由
+        fetcher: 'default',
+      },
     });
     const latency = Date.now() - start;
-    if (!res.ok) {
+
+    // 宽松策略：只要不是明确错误状态就算可用
+    // 很多 HLS 源返回 200/206，有些代理源返回 302/301 重定向
+    if (res.status >= 400) {
       return { url, status: 'dead', latency, success_rate: 0 };
     }
+
+    // 不再检查 Content-Type，因为很多可用源返回的 Content-Type 不符合预期
+    // 只要 HTTP 状态码 OK 就认为可用
     return scoreLatency(latency);
-  } catch {
-    try {
-      const res = await fetchWithTimeout(url, {
-        timeout,
-        init: {
-          method: 'GET',
-          headers: { Range: 'bytes=0-1023' },
-        },
-      });
-      const latency = Date.now() - start;
-      if (res.ok || res.status === 206) {
-        return { ...scoreLatency(latency), url };
-      }
-    } catch {
-      /* fall through */
-    }
-    return { url, status: 'dead', latency: Date.now() - start, success_rate: 0 };
+  } catch (err) {
+    // 超时或网络错误标记为 dead
+    const latency = Date.now() - start;
+    return { url, status: 'dead', latency, success_rate: 0 };
   }
 }
 
