@@ -220,8 +220,8 @@ curl https://<your-domain>/iptv.m3u
 
 | Variable | Description / 说明 | Default |
 |----------|-------------------|---------|
-| `ADMIN_API_KEY` | 管理 API 密钥 / Admin API key | `iptvx-admin-key` |
-| `IPTVX_BASE_URL` | 服务基础 URL / Base URL | `https://iptvx.yeeook.com` |
+| `ADMIN_API_KEY` | 管理 API 密钥 / Admin API key | `admin-key` |
+| `IPTVX_BASE_URL` | 服务基础 URL / Base URL | `https://iptvx.***.workers.dev` |
 
 ### 频道白名单 / Channel Whitelist
 
@@ -312,6 +312,7 @@ IPTVx/
 返回 M3U 格式的播放列表。
 
 **Response Headers / 响应头:**
+
 ```
 Content-Type: application/vnd.apple.mpegurl
 Access-Control-Allow-Origin: *
@@ -322,6 +323,7 @@ Access-Control-Allow-Origin: *
 返回服务健康状态。
 
 **Response / 响应:**
+
 ```json
 {
   "status": "ok",
@@ -340,6 +342,7 @@ Access-Control-Allow-Origin: *
 返回频道统计信息。
 
 **Response / 响应:**
+
 ```json
 {
   "channels": 108,
@@ -360,6 +363,7 @@ Access-Control-Allow-Origin: *
 手动触发采集流水线。
 
 **Headers / 请求头:**
+
 ```
 X-API-Key: your-admin-api-key
 ```
@@ -369,18 +373,22 @@ X-API-Key: your-admin-api-key
 ## FAQ / 常见问题
 
 ### Q: 为什么有些频道无法播放？/ Why can't some channels be played?
+
 A: IPTV 源的可用性取决于源服务器。Cron 每小时自动刷新，失效频道会被自动剔除。
 A: Channel availability depends on source servers. Cron auto-refreshes hourly, dead channels are removed.
 
 ### Q: 如何添加自定义频道？/ How to add custom channels?
+
 A: 在 `config/config.js` 的 `MIGU_SOURCE.staticList` 中添加静态源。
 A: Add static sources in `MIGU_SOURCE.staticList` in `config/config.js`.
 
 ### Q: 部署成本是多少？/ What is the deployment cost?
+
 A: **零成本**。Cloudflare Workers 免费套餐包含 10 万次请求/天，足够个人使用。
 A: **Zero cost**. Cloudflare Workers free tier includes 100K requests/day, sufficient for personal use.
 
 ### Q: 如何更新源列表？/ How to update source list?
+
 A: 编辑 `config/config.js` 中的 `SOURCE_LIST`，然后重新部署。
 A: Edit `SOURCE_LIST` in `config/config.js` and redeploy.
 
