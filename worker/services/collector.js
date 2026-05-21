@@ -363,6 +363,15 @@ export async function runFastPipeline(env) {
       channels = channels.filter((ch) => {
         const cat = ch.category || '';
         const name = ch.normalized_name || ch.name || '';
+        const quality = ch.quality || 'SD';
+
+        // 4K/8K 超高清频道：优先保留
+        if (cat === '4K超高清') {
+          const ultraHdList = whitelist.ultra_hd || [];
+          if (ultraHdList.some((w) => name.toUpperCase().includes(w.toUpperCase()) || quality === '8K' || quality === '4K')) {
+            return true;
+          }
+        }
 
         // 央视频道：精确匹配标准化名称
         if (cat === '央视频道') {

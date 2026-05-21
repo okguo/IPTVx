@@ -17,11 +17,11 @@
 | 🔄 **多源聚合** | 自动从 5+ 开源源拉取并合并频道 | 🔄 **Multi-source Aggregation** | Auto-fetch and merge channels from 5+ open sources |
 | 🤖 **AI 频道标准化** | 智能去重、标准化名称（CCTV-1 → CCTV1）、分类归一 | 🤖 **AI Channel Normalization** | Smart dedup, name standardization, category normalization |
 | ⚽ **体育直播爬取** | 定时爬取咖啡直播赛事源，自动归入体育分类 | ⚽ **Live Sports Scraping** | Scheduled scraping of live sports sources, auto-categorized |
-| 📺 **智能分类** | 央视频道 / 卫视频道 / 港澳台 / 体育 / 影视 / 少儿动漫 | 📺 **Smart Categorization** | CCTV / Satellite TV / HK-Macau-TW / Sports / Movies / Kids |
+| 📺 **三维分类矩阵** | 主分类 × 画质等级 × 子类型（4K/8K 专区、体育细分等） | 📺 **3D Category Matrix** | Primary × Quality × Sub-category (4K/8K zone, sports sub-cats) |
+| 📊 **多因子排序** | 画质+健康评分+源冗余度+CCTV顺序+收藏加成 | 📊 **Multi-Factor Ranking** | Quality + health + source count + CCTV order + favorites |
 | 🏷️ **白名单过滤** | 只保留高价值频道，自动剔除低质量/失效频道 | 🏷️ **Whitelist Filtering** | Only keep high-value channels, auto-filter low-quality/dead ones |
 | ⏰ **Cron 自动更新** | 每小时自动刷新频道和源状态 | ⏰ **Cron Auto-refresh** | Hourly auto-refresh of channels and source status |
 | 🌐 **EPG 增强** | 聚合 iptv-org EPG，智能 XMLTV ID 映射 + 占位节目 | 🌐 **Enhanced EPG** | Aggregated EPG with smart XMLTV ID mapping + fallback programmes |
-| 📊 **健康评分** | 综合成功率、延迟、源数量计算 0-100 健康分 | 📊 **Health Score** | 0-100 score from success rate, latency, source count |
 | 📈 **测速历史** | 持久化测速结果，支持频道健康趋势分析 | 📈 **Validation History** | Persisted validation with channel health trend analysis |
 | 🔍 **源管理** | 失效源自动剔除、源质量报告、手动控制 | 🔍 **Source Management** | Auto-remove dead sources, quality reports, manual control |
 | 🌍 **智能路由** | 基于地区/ISP 的智能源路由 + fallback 代理 | 🌍 **Smart Routing** | Region/ISP-based source routing + fallback proxy |

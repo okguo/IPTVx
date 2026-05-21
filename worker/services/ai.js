@@ -34,6 +34,8 @@ const NORMALIZE_PATTERNS = [
   [/CCTV[-\s]*6|央视6|中央6/i, 'CCTV6'],
   [/CCTV[-\s]*7\s*(国防|军事)|央视7\s*(国防|军事)|中央7\s*(国防|军事)/i, 'CCTV7'],
   [/CCTV[-\s]*7|央视7|中央7/i, 'CCTV7'],
+  // ⚠️ CCTV-8K 必须放在 CCTV8 之前，避免 8K 被误判为 CCTV8 电视剧
+  [/CCTV[-\s]*8K|CCTV[-\s]*8\s*K|央视8K|中央8K|8K超高清/i, 'CCTV8K'],
   [/CCTV[-\s]*8\s*(电视|剧)|央视8\s*(电视|剧)|中央8\s*(电视|剧)/i, 'CCTV8'],
   [/CCTV[-\s]*8|央视8|中央8/i, 'CCTV8'],
   [/CCTV[-\s]*9\s*纪录|央视9\s*纪录|中央9\s*纪录/i, 'CCTV9'],
@@ -110,6 +112,13 @@ export function classifyChannel(name, group = '', meta = {}) {
   const identityText = `${name} ${meta.normalized_name || ''} ${meta.tvgId || ''}`.trim();
   const fullText = `${identityText} ${group} ${meta.source || ''} ${meta.url || ''}`.trim();
 
+  // 4K/8K 超高清频道优先归类（三维分类矩阵：画质维度）
+  if (/8K|8k|超高清8K/i.test(fullText)) return '4K超高清';
+  if (/4K|4k|UHD|超高清4K/i.test(fullText) && !/CCTV/i.test(identityText)) {
+    // CCTV 的 4K 频道仍归入央视频道，但标记画质
+    return '4K超高清';
+  }
+
   if (/咪咕|migu|miguvideo|cmvideo|咪视界/i.test(fullText) && /体育|足球|篮球|NBA|CBA|英超|西甲|欧冠|亚冠|中超|网球|斯诺克|F1|赛车|高尔夫|搏击|UFC/i.test(fullText)) {
     return '咪咕体育';
   }
@@ -124,6 +133,35 @@ export function classifyChannel(name, group = '', meta = {}) {
     if ((rule.patterns || []).every((p) => p.test(fullText))) return rule.name;
   }
   return '其他';
+}
+
+/** 检测频道画质等级 */
+export function detectChannelQuality(name = '', group = '', sources = []) {
+  const text = `${name} ${group} ${(sources || []).map(s => s.url).join(' ')}`;
+
+  // 按优先级检测（8K > 4K > FHD > HD）
+  const qualityPatterns = config.QUALITY_PATTERNS || {};
+
+  if (qualityPatterns['8K']?.some(p => p.test(text))) return '8K';
+  if (qualityPatterns['4K']?.some(p => p.test(text))) return '4K';
+  if (qualityPatterns['FHD']?.some(p => p.test(text))) return 'FHD';
+  if (qualityPatterns['HD']?.some(p => p.test(text))) return 'HD';
+
+  return 'SD';
+}
+
+/** 获取体育频道的子分类（足球/篮球/综合等） */
+export function getSportsSubCategory(name = '', group = '', sources = []) {
+  const text = `${name} ${group} ${(sources || []).map(s => s.url).join(' ')}`;
+  const subCategories = config.SPORTS_SUB_CATEGORY || [];
+
+  for (const sub of subCategories) {
+    if ((sub.patterns || []).some(p => p.test(text))) {
+      return sub.name;
+    }
+  }
+
+  return '综合体育';
 }
 
 function isRegionalChannelText(identityText, group = '') {
@@ -152,7 +190,9 @@ function inferLocalRegion(text) {
 export function inferPlaylistGroup(channel) {
   const category = channel.category || classifyChannel(channel.name, channel.group, channel);
   const text = `${channel.name || ''} ${channel.group || ''} ${channel.normalized_name || ''}`;
+  const quality = channel.quality || detectChannelQuality(channel.name, channel.group, channel.sources);
 
+  if (category === '4K超高清') return `4K超清-${quality}`;
   if (category === '咪咕体育') return channel.playlist_group || '咪咕体育-综合体育';
   if (category === '央视频道') return '央视频道';
   if (category === '卫视频道') return '卫视频道';
@@ -160,9 +200,9 @@ export function inferPlaylistGroup(channel) {
   if (category === '港澳台') return '港澳台';
 
   if (category === '体育') {
-    if (/足球|英超|西甲|欧冠|亚冠|中超/i.test(text)) return '体育-足球';
-    if (/篮球|NBA|CBA/i.test(text)) return '体育-篮球';
-    return '体育-综合';
+    // 使用体育子分类
+    const subCategory = getSportsSubCategory(channel.name, channel.group, channel.sources);
+    return `体育-${subCategory}`;
   }
   if (category === '影视') return '影视';
   if (category === '新闻') return '新闻';
@@ -195,30 +235,74 @@ function isNamedEventStream(channel) {
   return /(NBA\s*\d+|英超直播|西甲直播|欧冠直播|UFC|老鹰|凯尔特人|篮网|黄蜂|公牛|骑士|独行侠|掘金|活塞|勇士|火箭|步行者|快船|湖人|灰熊|热火|雄鹿|森林狼|鹈鹕|尼克斯|雷霆|魔术|76人|太阳|开拓者|国王|马刺|猛龙|爵士|奇才)/i.test(text);
 }
 
-export function channelPriorityScore(channel) {
+/**
+ * 多因子加权排序（三维分类矩阵排序策略）
+ * 最终分数 = 基础分类分 + 画质加成 + 健康评分 + 源冗余度 + 用户收藏 + 顺序加成 - 时效惩罚
+ */
+export function channelPriorityScore(channel, userPrefs = null) {
+  const matrix = config.CATEGORY_MATRIX || {};
+  const primaryWeights = matrix.primaryWeights || {};
+  const qualityBonus = matrix.qualityBonus || {};
+
   const category = channel.category || classifyChannel(channel.name, channel.group, channel);
+  const quality = channel.quality || detectChannelQuality(channel.name, channel.group, channel.sources);
   let score = 0;
 
-  if (category === '央视频道') score += 1000;
-  else if (category === '卫视频道') score += 900;
-  else if (category === '地方频道') score += 800;
-  else if (category === '港澳台') score += 700;
-  else if (category === '咪咕体育') score += 650;
-  else if (category === '体育') score += 600;
-  else if (category === '新闻') score += 500;
-  else if (category === '影视') score += 400;
-  else if (category === '少儿动漫') score += 300;
-  else if (category === '纪实人文') score += 250;
-  else if (category === '综艺娱乐') score += 200;
+  // 1. 基础分类分（0-1200）
+  score += primaryWeights[category] || primaryWeights['其他'] || 100;
 
-  if (/CCTV1|CCTV13|CCTV5\+?|CCTV6|CCTV8|CCTV4|CGTN/i.test(channel.normalized_name || channel.name || '')) score += 120;
-  if (/卫视/i.test(channel.name || '')) score += 80;
-  if (/新闻综合|都市|公共|经济科教|影视/i.test(channel.name || '')) score += 50;
-  if ((channel.sources?.length || 0) > 1) score += 20;
+  // 2. 画质加成（0-200）
+  score += qualityBonus[quality] || 0;
+
+  // 3. 健康评分加成（0-100）
+  const healthScore = channel.health_score ?? 0;
+  score += Math.round(healthScore * (matrix.healthScoreWeight || 1.0));
+
+  // 4. 源冗余度（0-50）：源越多越稳定
+  const sourceCount = channel.sources?.length || 0;
+  score += Math.min(sourceCount * 10, matrix.maxSourceBonus || 50);
+
+  // 5. 用户收藏加成（0-300）
+  if (userPrefs?.favorite_channels?.includes(channel.normalized_name)) {
+    score += matrix.favoriteBonus || 300;
+  }
+
+  // 6. CCTV 顺序加成：确保 CCTV1-17 严格按频道号顺序排列（编号越小分数越高）
+  //    使用足够大的间隔（每档 20 分），确保画质加成不会打乱顺序
+  const cctvMatch = (channel.normalized_name || channel.name || '').match(/^CCTV(\d{1,2})\+?$/i);
+  if (cctvMatch) {
+    const channelNum = parseInt(cctvMatch[1], 10);
+    if (channelNum >= 1 && channelNum <= 17) {
+      // CCTV1 = 340 分, CCTV2 = 320 分, ..., CCTV17 = 20 分
+      // 间隔 20 分/档 >> 最大画质差距 (HD=50 vs SD=0 = 50 分差距)
+      // 确保 CCTV(N) 永远排在 CCTV(N+1) 之前，不受画质影响
+      score += (18 - channelNum) * 20;
+    }
+  }
+
+  // 7. 核心频道额外加成（非 CCTV 顺序的频道）
+  if (/CGTN/i.test(channel.normalized_name || '')) score += 5;
+  if (/卫视/i.test(channel.name || '')) score += 30;
+  if (/新闻综合|都市|公共|经济科教|影视/i.test(channel.name || '')) score += 20;
+
+  // 8. 地区加成
   if (channel.region === 'CN') score += 15;
-  if (isRegionalTvChannel(channel)) score += 120;
-  if (isLowValueChannel(channel)) score -= 500;
-  if (isNamedEventStream(channel)) score -= 250;
+  if (isRegionalTvChannel(channel)) score += 40;
+
+  // 9. 体育子分类加成（足球/篮球等热门赛事）
+  if (category === '体育' || category === '咪咕体育') {
+    const subCategory = channel.sports_sub_category || getSportsSubCategory(channel.name, channel.group, channel.sources);
+    if (subCategory === '足球') score += 25;
+    if (subCategory === '篮球') score += 20;
+  }
+
+  // 10. 低价值/时效惩罚
+  if (isLowValueChannel(channel)) score -= 200;
+  if (isNamedEventStream(channel)) score -= 100;
+
+  // 11. 测速失败惩罚
+  const hasDeadSources = channel.sources?.every(s => s.status === 'dead');
+  if (hasDeadSources) score -= 150;
 
   return score;
 }
@@ -289,13 +373,19 @@ export function buildChannelTags(channel) {
   else if (/CN|央视|卫视|CCTV/i.test(text)) tags.add('region:CN');
   else tags.add('region:INTL');
 
-  if (/4K|UHD/i.test(text)) tags.add('quality:4K');
-  else if (/FHD|1080|高清/i.test(text)) tags.add('quality:FHD');
-  else if (/HD|720/i.test(text)) tags.add('quality:HD');
-  else tags.add('quality:SD');
+  // 使用新的画质检测函数（支持 8K/4K/UHD/FHD/HD/SD）
+  const quality = channel.quality || detectChannelQuality(channel.name, channel.group, channel.sources);
+  tags.add(`quality:${quality}`);
 
   const genre = channel.category || classifyChannel(channel.name, channel.group);
   tags.add(`genre:${genre}`);
+
+  // 体育子分类标签
+  if (genre === '体育' || genre === '咪咕体育') {
+    const subCategory = channel.sports_sub_category || getSportsSubCategory(channel.name, channel.group, channel.sources);
+    tags.add(`sports:${subCategory}`);
+  }
+
   if (genre === '咪咕体育' || /咪咕|migu|miguvideo|cmvideo|咪视界/i.test(`${text} ${(channel.sources || []).map((s) => s.url).join(' ')}`)) {
     tags.add('provider:migu');
   }
@@ -343,6 +433,9 @@ export function dedupeChannelsFast(entries) {
         source: entry.source,
         url: entry.url,
       });
+      const quality = detectChannelQuality(entry.name, entry.group, [{ url: entry.url }]);
+      const sportsSubCategory = category === '体育' ? getSportsSubCategory(entry.name, entry.group, [{ url: entry.url }]) : '';
+
       ch = {
         name: entry.name,
         normalized_name: normalized,
@@ -352,7 +445,8 @@ export function dedupeChannelsFast(entries) {
         tvgId: entry.tvgId,
         category,
         region: 'INTL',
-        quality: 'SD',
+        quality,
+        sports_sub_category: sportsSubCategory,
         tags: [],
         sources: [],
       };
@@ -365,7 +459,12 @@ export function dedupeChannelsFast(entries) {
     ch.playlist_group = inferPlaylistGroup(ch);
     ch.tags = buildChannelTags(ch);
     ch.region = ch.tags.find((t) => t.startsWith('region:'))?.split(':')[1] || 'INTL';
-    ch.quality = ch.tags.find((t) => t.startsWith('quality:'))?.split(':')[1] || 'SD';
+    // 使用新函数检测画质
+    ch.quality = detectChannelQuality(ch.name, ch.group, ch.sources);
+    // 更新体育子分类
+    if (ch.category === '体育' || ch.category === '咪咕体育') {
+      ch.sports_sub_category = getSportsSubCategory(ch.name, ch.group, ch.sources);
+    }
     return ch;
   });
 }
@@ -400,6 +499,9 @@ export function dedupeChannels(entries, threshold = config.DEDUPE_SIMILARITY_THR
         url: entry.url,
       });
       const tags = buildChannelTags({ name: entry.name, group: entry.group, category });
+      const quality = detectChannelQuality(entry.name, entry.group, [{ url: entry.url }]);
+      const sportsSubCategory = category === '体育' ? getSportsSubCategory(entry.name, entry.group, [{ url: entry.url }]) : '';
+
       groups.push({
         name: entry.name,
         normalized_name: normalized,
@@ -409,7 +511,8 @@ export function dedupeChannels(entries, threshold = config.DEDUPE_SIMILARITY_THR
         tvgId: entry.tvgId,
         category,
         region: tags.find((t) => t.startsWith('region:'))?.split(':')[1] || 'INTL',
-        quality: tags.find((t) => t.startsWith('quality:'))?.split(':')[1] || 'SD',
+        quality,
+        sports_sub_category: sportsSubCategory,
         tags,
         embedding: emb,
         sources: [streamFromEntry(entry)],
@@ -421,6 +524,11 @@ export function dedupeChannels(entries, threshold = config.DEDUPE_SIMILARITY_THR
     ...ch,
     playlist_group: inferPlaylistGroup(ch),
     tags: buildChannelTags(ch),
+    // 最终画质和体育子分类确认
+    quality: detectChannelQuality(ch.name, ch.group, ch.sources),
+    sports_sub_category: (ch.category === '体育' || ch.category === '咪咕体育')
+      ? getSportsSubCategory(ch.name, ch.group, ch.sources)
+      : ch.sports_sub_category,
   }));
 }
 

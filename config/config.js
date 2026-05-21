@@ -57,10 +57,12 @@ export default {
     /** 央视频道白名单（标准化名称） */
     cctv: [
       'CCTV1', 'CCTV2', 'CCTV3', 'CCTV4', 'CCTV5', 'CCTV5+',
-      'CCTV6', 'CCTV7', 'CCTV8', 'CCTV9', 'CCTV10', 'CCTV11',
+      'CCTV6', 'CCTV7', 'CCTV8', 'CCTV8K', 'CCTV9', 'CCTV10', 'CCTV11',
       'CCTV12', 'CCTV13', 'CCTV14', 'CCTV15', 'CCTV16', 'CCTV17',
       'CGTN', 'CGTN法语', 'CGTN俄语', 'CGTN西班牙语', 'CGTN阿拉伯语', 'CGTN纪录',
     ],
+    /** 4K/8K 超高清频道白名单 */
+    ultra_hd: ['CCTV8K', '4K', '8K', 'UHD', '超高清'],
     /** 卫视频道白名单（包含关键词即可匹配） */
     satellite: [
       '湖南卫视', '浙江卫视', '东方卫视', '江苏卫视', '北京卫视',
@@ -302,7 +304,59 @@ export default {
     proxyPath: '/api/stream',
     maxFallbackAttempts: 3,
   },
+  /** 画质匹配规则（用于检测和标记频道画质等级） */
+  QUALITY_PATTERNS: {
+    '8K': [/8K|8k|8k超高清|超高清8K/i],
+    '4K': [/4K|4k|UHD|uhd|4k超高清|超高清4K/i],
+    'FHD': [/FHD|fhd|1080[Pp]?|全高清|1080i/i],
+    'HD': [/HD|hd|720[Pp]?|高清/i],
+  },
+  /** 体育子分类规则（用于将体育频道细分为足球/篮球/综合等） */
+  SPORTS_SUB_CATEGORY: [
+    { name: '足球', patterns: [/足球\|英超\|西甲\|欧冠\|欧联\|亚冠\|中超\|意甲\|德甲\|法甲\|足总杯\|联赛杯/i] },
+    { name: '篮球', patterns: [/篮球\|NBA\|CBA\|WNBA/i] },
+    { name: '赛车', patterns: [/F1\|赛车\|Motogp\|拉力赛/i] },
+    { name: '网球', patterns: [/网球\|澳网\|法网\|温网\|美网\|ATP\|WTA/i] },
+    { name: '搏击', patterns: [/UFC\|搏击\|拳击\|格斗\|MMA/i] },
+    { name: '高尔夫', patterns: [/高尔夫\|PGA\|LPGA/i] },
+    { name: '斯诺克', patterns: [/斯诺克\|台球\|桌球/i] },
+    { name: '综合体育', patterns: [/体育\|Sport|CCTV5/i] },
+  ],
+  /** 三维分类矩阵：主分类 × 画质 × 子类型 */
+  CATEGORY_MATRIX: {
+    /** 主分类权重（用于排序基础分） */
+    primaryWeights: {
+      '4K超高清': 1200,
+      '央视频道': 1000,
+      '卫视频道': 900,
+      '地方频道': 800,
+      '港澳台': 700,
+      '咪咕体育': 650,
+      '体育': 600,
+      '新闻': 500,
+      '影视': 400,
+      '少儿动漫': 300,
+      '纪实人文': 250,
+      '综艺娱乐': 200,
+      '其他': 100,
+    },
+    /** 画质加成（用于排序） */
+    qualityBonus: {
+      '8K': 200,
+      '4K': 150,
+      'FHD': 100,
+      'HD': 50,
+      'SD': 0,
+    },
+    /** 用户收藏加成 */
+    favoriteBonus: 300,
+    /** 源冗余度上限 */
+    maxSourceBonus: 50,
+    /** 健康评分权重系数 */
+    healthScoreWeight: 1.0,
+  },
   CATEGORY_RULES: [
+    { name: '4K超高清', patterns: [/(8K|4K|UHD|超高清)/i] },
     { name: '咪咕体育', patterns: [/咪咕|migu|miguvideo|cmvideo|咪视界/i, /体育|足球|篮球|NBA|CBA|英超|西甲|欧冠|亚冠|中超|网球|斯诺克|F1|赛车|高尔夫|搏击|UFC/i] },
     { name: '央视频道', patterns: [/CCTV|央视|CGTN/i] },
     { name: '央视频道', patterns: [/CGTN\s*(西班牙语|法语|阿拉伯语|俄语|纪录)/i] },
