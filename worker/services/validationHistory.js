@@ -271,3 +271,151 @@ function computeTrendDirection(trend) {
   if (diff < -5) return 'declining';
   return 'stable';
 }
+
+/**
+ * Phase 2: GeoIP+ASN 延迟热力图
+ * 记录用户请求时的实际延迟，按 GeoIP+ASN 维度聚合
+ */
+
+const HEATMAP_KEY = 'heatmap:geoasn';
+const HEATMAP_TTL_DAYS = 30;
+const HEATMAP_MAX_ENTRIES_PER_SOURCE = 500;
+
+/**
+ * 记录请求时延迟采样
+ */
+export async function recordRequestLatency(env, sourceUrl, geoASNKey, latencyMs) {
+  if (!env || !sourceUrl || !geoASNKey || latencyMs == null) return;
+
+  const heatmap = (await getJSON(env, HEATMAP_KEY)) || {};
+
+  // 键格式：源URL + GeoASNKey
+  const key = `${sourceUrl}::${geoASNKey}`;
+  if (!heatmap[key]) {
+    heatmap[key] = {
+      source_url: sourceUrl,
+      geo_asn_key: geoASNKey,
+      samples: [],
+      total_samples: 0,
+    };
+  }
+
+  const entry = heatmap[key];
+  entry.samples.push({
+    timestamp: Date.now(),
+    latency_ms: latencyMs,
+  });
+  entry.total_samples += 1;
+
+  // 限制样本数量
+  if (entry.samples.length > HEATMAP_MAX_ENTRIES_PER_SOURCE) {
+    entry.samples = entry.samples.slice(-HEATMAP_MAX_ENTRIES_PER_SOURCE);
+  }
+
+  // 清理过期样本
+  const cutoffTs = Date.now() - HEATMAP_TTL_DAYS * 24 * 60 * 60 * 1000;
+  entry.samples = entry.samples.filter((s) => s.timestamp >= cutoffTs);
+
+  await setJSON(env, HEATMAP_KEY, heatmap);
+}
+
+/**
+ * 获取 GeoIP+ASN 热力图延迟分数
+ */
+export function getGeoASNHeatmapScore(sourceUrl, geoASNKey, heatmap = null) {
+  if (!heatmap) {
+    // 同步调用，无法获取 KV 数据，返回 null
+    return null;
+  }
+
+  const key = `${sourceUrl}::${geoASNKey}`;
+  const entry = heatmap[key];
+  if (!entry || !entry.samples || entry.samples.length === 0) {
+    // 回退：尝试用全国同 ASN 的数据
+    const fallbackKey = sourceUrl + '::' + geoASNKey.replace(/^[A-Z]{2}-[A-Z]{2}/, 'CN-*');
+    const fallback = heatmap[fallbackKey];
+    if (!fallback || !fallback.samples || fallback.samples.length < 5) {
+      return null; // 数据不足
+    }
+    return computeHeatmapStats(fallback.samples);
+  }
+
+  return computeHeatmapStats(entry.samples);
+}
+
+/**
+ * 异步版本：从 KV 获取热力图数据
+ */
+export async function getGeoASNHeatmapScoreAsync(env, sourceUrl, geoASNKey) {
+  if (!env) return null;
+
+  const heatmap = (await getJSON(env, HEATMAP_KEY)) || {};
+  return getGeoASNHeatmapScore(sourceUrl, geoASNKey, heatmap);
+}
+
+/**
+ * 计算热力图统计
+ */
+function computeHeatmapStats(samples) {
+  if (!samples || samples.length === 0) return null;
+
+  const latencies = samples.map((s) => s.latency_ms).filter((l) => l != null && l > 0);
+  if (latencies.length === 0) return null;
+
+  latencies.sort((a, b) => a - b);
+
+  const avg = latencies.reduce((a, b) => a + b, 0) / latencies.length;
+  const median = latencies[Math.floor(latencies.length / 2)];
+  const p95 = latencies[Math.floor(latencies.length * 0.95)];
+  const min = latencies[0];
+  const max = latencies[latencies.length - 1];
+
+  return {
+    avg_latency: Math.round(avg),
+    median_latency: Math.round(median),
+    p95_latency: Math.round(p95),
+    min_latency: Math.round(min),
+    max_latency: Math.round(max),
+    sample_count: latencies.length,
+    confidence: Math.min(1, latencies.length / 50), // 50 个样本 = 100% 置信度
+  };
+}
+
+/**
+ * 获取热力图报告（按 GeoIP+ASN 聚合）
+ */
+export async function getHeatmapReport(env, options = {}) {
+  const heatmap = (await getJSON(env, HEATMAP_KEY)) || {};
+  const { region, asn, sourceUrl, topN = 20 } = options;
+
+  const entries = Object.values(heatmap);
+  let filtered = entries.filter((e) => e.samples && e.samples.length >= 5);
+
+  if (region) {
+    filtered = filtered.filter((e) => e.geo_asn_key.includes(`-${region}-`));
+  }
+  if (asn) {
+    filtered = filtered.filter((e) => e.geo_asn_key.endsWith(`-${asn}`));
+  }
+  if (sourceUrl) {
+    filtered = filtered.filter((e) => e.source_url === sourceUrl);
+  }
+
+  const stats = filtered.map((e) => {
+    const s = computeHeatmapStats(e.samples);
+    if (!s) return null;
+    return {
+      source_url: e.source_url,
+      geo_asn_key: e.geo_asn_key,
+      ...s,
+    };
+  }).filter(Boolean);
+
+  stats.sort((a, b) => a.avg_latency - b.avg_latency);
+
+  return {
+    top_sources: stats.slice(0, topN),
+    total_entries: entries.length,
+    filtered_entries: stats.length,
+  };
+}

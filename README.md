@@ -16,21 +16,22 @@
 |------|------|---------|-------------|
 | 🔄 **多源聚合** | 自动从 5+ 开源源拉取并合并频道 | 🔄 **Multi-source Aggregation** | Auto-fetch and merge channels from 5+ open sources |
 | 🤖 **AI 频道标准化** | 智能去重、标准化名称（CCTV-1 → CCTV1）、分类归一 | 🤖 **AI Channel Normalization** | Smart dedup, name standardization, category normalization |
-| ⚽ **体育直播爬取** | 定时爬取咖啡直播赛事源，自动归入体育分类 | ⚽ **Live Sports Scraping** | Scheduled scraping of live sports sources, auto-categorized |
-| 📺 **三维分类矩阵** | 主分类 × 画质等级 × 子类型（4K/8K 专区、体育细分等） | 📺 **3D Category Matrix** | Primary × Quality × Sub-category (4K/8K zone, sports sub-cats) |
-| 📊 **多因子排序** | 画质+健康评分+源冗余度+CCTV顺序+收藏加成 | 📊 **Multi-Factor Ranking** | Quality + health + source count + CCTV order + favorites |
-| 🏷️ **白名单过滤** | 只保留高价值频道，自动剔除低质量/失效频道 | 🏷️ **Whitelist Filtering** | Only keep high-value channels, auto-filter low-quality/dead ones |
+| ⚽ **体育直播爬取** | 定时爬取赛事源，自动归入体育分类 | ⚽ **Live Sports Scraping** | Scheduled scraping of live sports sources |
+| 📺 **三维分类矩阵** | 主分类 × 画质等级 × 子类型（4K/8K 专区、体育细分） | 📺 **3D Category Matrix** | Primary × Quality × Sub-category (4K/8K zone, sports sub-cats) |
+| 📊 **多因子排序** | 画质+健康评分+CCTV顺序+收藏加成 | 📊 **Multi-Factor Ranking** | Quality + health + CCTV order + favorites |
+| 🌍 **GeoIP+ASN 路由** | 省+运营商三维调度，精准匹配最优源 | 🌍 **GeoIP+ASN Routing** | Province+ISP 3D dispatch for optimal source matching |
+| 📈 **延迟热力图** | 用户请求实时采样，按 GeoIP+ASN 聚合延迟数据 | 📈 **Latency Heatmap** | Real-time request sampling by GeoIP+ASN |
+| 🏷️ **白名单过滤** | 只保留高价值频道 | 🏷️ **Whitelist Filtering** | Only keep high-value channels |
 | ⏰ **Cron 自动更新** | 每小时自动刷新频道和源状态 | ⏰ **Cron Auto-refresh** | Hourly auto-refresh of channels and source status |
-| 🌐 **EPG 增强** | 聚合 iptv-org EPG，智能 XMLTV ID 映射 + 占位节目 | 🌐 **Enhanced EPG** | Aggregated EPG with smart XMLTV ID mapping + fallback programmes |
-| 📈 **测速历史** | 持久化测速结果，支持频道健康趋势分析 | 📈 **Validation History** | Persisted validation with channel health trend analysis |
-| 🔍 **源管理** | 失效源自动剔除、源质量报告、手动控制 | 🔍 **Source Management** | Auto-remove dead sources, quality reports, manual control |
-| 🌍 **智能路由** | 基于地区/ISP 的智能源路由 + fallback 代理 | 🌍 **Smart Routing** | Region/ISP-based source routing + fallback proxy |
-| 🖼️ **Logo 补全** | 自动补全频道图标（iptv-org logos） | 🖼️ **Logo Enrichment** | Auto-complete channel logos from iptv-org |
+| 🌐 **EPG 增强** | 智能 XMLTV ID 映射 + 占位节目 | 🌐 **Enhanced EPG** | Smart XMLTV ID mapping + fallback programmes |
+| 📊 **测速历史** | 持久化测速结果，健康趋势分析 | 📊 **Validation History** | Persisted validation with health trend analysis |
+| 🔍 **源管理** | 失效源自动剔除、源质量报告 | 🔍 **Source Management** | Auto-remove dead sources, quality reports |
+| 🖼️ **Logo 补全** | 自动补全频道图标 | 🖼️ **Logo Enrichment** | Auto-complete channel logos |
 | ⭐ **收藏系统** | 用户收藏频道、个性化推荐 | ⭐ **Favorites** | User channel favorites, personalized recommendations |
-| 🔗 **HLS 代理** | 主源失败时自动代理中转 M3U8 流 | 🔗 **HLS Proxy** | Auto-proxy M3U8 when direct connection fails |
-| 🔎 **源发现** | 自动扫描 GitHub IPTV 仓库发现新源 | 🔎 **Source Discovery** | Auto-scan GitHub IPTV repos for new sources |
-| 🧠 **LLM 支持** | 可选 LLM 模式进行智能频道分类 | 🧠 **LLM Support** | Optional LLM mode for smart channel classification |
-| 💾 **零托管成本** | 完全运行在 Cloudflare 免费套餐上 | 💾 **Zero Hosting Cost** | Runs entirely on Cloudflare's free tier |
+| 🔗 **HLS 代理** | 主源失败时自动代理中转 | 🔗 **HLS Proxy** | Auto-proxy M3U8 on failure |
+| 🔎 **源发现** | 自动扫描 GitHub IPTV 仓库 | 🔎 **Source Discovery** | Auto-scan GitHub IPTV repos |
+| 🧠 **LLM 支持** | 可选 LLM 模式进行智能分类 | 🧠 **LLM Support** | Optional LLM mode for classification |
+| 💾 **零托管成本** | 完全运行在 Cloudflare 免费套餐上 | 💾 **Zero Hosting Cost** | Runs entirely on Cloudflare free tier |
 
 ---
 
@@ -143,6 +144,8 @@ https://<your-domain>/iptv.m3u
 | `GET /api/health/score?channel=CCTV1` | GET | 单频道健康评分 |
 | `GET /api/source/discovery` | GET | 源发现历史 |
 | `POST /api/source/discovery` | POST | 触发源发现 |
+| `GET /api/heatmap` | GET | 延迟热力图（按 GeoIP+ASN） |
+| `GET /api/geo` | GET | 用户地理位置（国家/省份/ASN/运营商） |
 | `GET /api/user/favorites` | GET | 收藏频道列表 |
 | `POST /api/user/favorites` | POST | 添加收藏 |
 | `DELETE /api/user/favorites` | DELETE | 移除收藏 |
@@ -320,16 +323,17 @@ IPTVx/
 │   │   ├── ai.js              # AI 频道标准化/分类/去重
 │   │   ├── aiAdvanced.js      # 高级 AI 处理
 │   │   ├── aiLLM.js           # LLM 模式接入
+│   │   ├── geoASNMap.js       # GeoIP+ASN 路由映射表
 │   │   ├── collector.js       # 多源聚合 + 咖啡直播爬取
 │   │   ├── epg.js             # EPG 生成逻辑
 │   │   ├── validator.js       # 频道健康检查/测速
-│   │   ├── validationHistory.js # 测速历史持久化
+│   │   ├── validationHistory.js # 测速历史 + 延迟热力图
 │   │   ├── sourceManager.js   # 源池管理
 │   │   ├── sourceDiscovery.js # 源自动发现
 │   │   ├── healthScore.js     # 健康评分体系
 │   │   ├── logo.js            # Logo 自动补全
 │   │   ├── fallback.js        # 流 fallback + HLS 代理
-│   │   ├── router.js          # 智能源路由
+│   │   ├── router.js          # GeoIP+ASN 智能路由
 │   │   ├── recommend.js       # 个性化推荐
 │   │   ├── metrics.js         # 访问指标
 │   │   ├── auth.js            # 认证服务

@@ -12,6 +12,8 @@ import {
   handleHealthScore,
   handleSourceDiscovery,
   handleTriggerDiscovery,
+  handleHeatmapReport,
+  handleUserGeo,
 } from './routes/api.js';
 import { handleRegister, handleLogin } from './routes/auth.js';
 import {
@@ -46,6 +48,8 @@ const ROUTES = [
   { method: 'GET', path: '/api/health/score', handler: (req, env) => handleHealthScore(req, env) },
   { method: 'GET', path: '/api/source/discovery', handler: (req, env) => handleSourceDiscovery(req, env) },
   { method: 'POST', path: '/api/source/discovery', handler: (req, env) => handleTriggerDiscovery(env) },
+  { method: 'GET', path: '/api/heatmap', handler: (req, env) => handleHeatmapReport(req, env) },
+  { method: 'GET', path: '/api/geo', handler: (req) => handleUserGeo(req) },
   { method: 'GET', path: '/dashboard', handler: (req, env) => handleDashboard(env) },
   { method: 'GET', path: '/player', handler: (req) => handlePlayerPage(req) },
   { method: 'GET', path: '/admin', handler: (req, env) => handleAdminPage(env) },
@@ -106,6 +110,8 @@ export default {
             '/api/source/active',
             '/api/health/score',
             '/api/source/discovery',
+            '/api/heatmap',
+            '/api/geo',
           ],
         },
         { status: 404 },

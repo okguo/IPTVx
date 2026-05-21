@@ -1,14 +1,15 @@
 import { getJSON, KV_KEYS } from '../utils/cache.js';
 import { summarizeHealth } from '../services/validator.js';
 import { buildM3U } from '../utils/parser.js';
-import { pickBestSource, getClientContext } from '../services/router.js';
+import { pickBestSource, getClientContext, rankSources } from '../services/router.js';
 import { proxyStreamUrl, getBaseUrl } from '../services/fallback.js';
 import { getMetrics } from '../services/metrics.js';
 import { ensureBootstrap } from '../services/bootstrap.js';
-import { getValidationHistory, getChannelTrend, getGlobalSourceStats } from '../services/validationHistory.js';
+import { getValidationHistory, getChannelTrend, getGlobalSourceStats, getHeatmapReport } from '../services/validationHistory.js';
 import { getSourceQualityReport, getActiveSources, getSourceStats, setSourceStatus, discoverAndEvaluateSources } from '../services/sourceManager.js';
 import { computeChannelHealthScore, getHealthLevel, getHealthScoreDistribution } from '../services/healthScore.js';
 import { getSourceDiscoveryHistory } from '../services/sourceDiscovery.js';
+import { getUserRegion } from '../services/geoASNMap.js';
 
 export { pickBestSource, getClientContext };
 
@@ -152,9 +153,18 @@ export async function buildRoutedPlaylist(env, request, options = {}) {
   const useProxy = options.useProxy ?? false;
   const baseUrl = getBaseUrl(request);
 
-  return buildM3U(channels, (ch) => {
+  // Phase 1+2: 预先对每个频道进行 GeoIP+ASN 路由排序
+  const rankedChannels = await Promise.all(
+    channels.map(async (ch) => {
+      const ranked = await rankSources(ch, request, userPrefs, env);
+      return { ...ch, sources: ranked };
+    }),
+  );
+
+  return buildM3U(rankedChannels, (ch) => {
     if (useProxy) return proxyStreamUrl(request, ch, baseUrl);
-    return pickBestSource(ch, request, userPrefs);
+    // sources 已按 GeoIP+ASN 排序，取第一个
+    return ch.sources?.[0]?.url || ch.sources?.[0]?.url;
   });
 }
 
@@ -234,4 +244,32 @@ export async function handleSourceDiscovery(request, env) {
 export async function handleTriggerDiscovery(env) {
   const result = await discoverAndEvaluateSources(env);
   return Response.json(result);
+}
+
+/** 获取热力图报告 */
+export async function handleHeatmapReport(request, env) {
+  const url = new URL(request.url);
+  const region = url.searchParams.get('region');
+  const asn = url.searchParams.get('asn');
+  const sourceUrl = url.searchParams.get('source');
+  const topN = Number(url.searchParams.get('limit') || 20);
+
+  const report = await getHeatmapReport(env, { region, asn, sourceUrl, topN });
+  return Response.json(report);
+}
+
+/** 获取用户地理位置信息 */
+export async function handleUserGeo(request) {
+  const cf = request?.cf || {};
+  const userRegion = getUserRegion(cf);
+
+  return Response.json({
+    country: cf.country,
+    region: cf.region,
+    asn: cf.asn,
+    city: cf.city,
+    colo: cf.colo,
+    isp: cf.asOrganization,
+    ...userRegion,
+  });
 }
