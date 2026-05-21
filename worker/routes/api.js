@@ -5,6 +5,10 @@ import { pickBestSource, getClientContext } from '../services/router.js';
 import { proxyStreamUrl, getBaseUrl } from '../services/fallback.js';
 import { getMetrics } from '../services/metrics.js';
 import { ensureBootstrap } from '../services/bootstrap.js';
+import { getValidationHistory, getChannelTrend, getGlobalSourceStats } from '../services/validationHistory.js';
+import { getSourceQualityReport, getActiveSources, getSourceStats, setSourceStatus, discoverAndEvaluateSources } from '../services/sourceManager.js';
+import { computeChannelHealthScore, getHealthLevel, getHealthScoreDistribution } from '../services/healthScore.js';
+import { getSourceDiscoveryHistory } from '../services/sourceDiscovery.js';
 
 export { pickBestSource, getClientContext };
 
@@ -152,4 +156,82 @@ export async function buildRoutedPlaylist(env, request, options = {}) {
     if (useProxy) return proxyStreamUrl(request, ch, baseUrl);
     return pickBestSource(ch, request, userPrefs);
   });
+}
+
+/** 获取频道测速历史趋势 */
+export async function handleValidationTrend(request, env) {
+  const url = new URL(request.url);
+  const channel = url.searchParams.get('channel');
+  const days = Number(url.searchParams.get('days') || 7);
+
+  if (!channel) {
+    return Response.json({ error: 'channel parameter required' }, { status: 400 });
+  }
+
+  const trend = await getChannelTrend(env, channel, days);
+  return Response.json(trend);
+}
+
+/** 获取源质量报告 */
+export async function handleSourceReport(request, env) {
+  const report = await getSourceQualityReport(env);
+  return Response.json(report);
+}
+
+/** 获取活跃源列表 */
+export async function handleActiveSources(request, env) {
+  const sources = await getActiveSources(env);
+  return Response.json({ sources });
+}
+
+/** 手动设置源状态 */
+export async function handleSetSourceStatus(request, env) {
+  const url = new URL(request.url);
+  const sourceUrl = url.searchParams.get('url');
+  const status = url.searchParams.get('status');
+
+  if (!sourceUrl || !status) {
+    return Response.json({ error: 'url and status parameters required' }, { status: 400 });
+  }
+
+  const result = await setSourceStatus(env, sourceUrl, status);
+  if (!result) {
+    return Response.json({ error: 'source not found' }, { status: 404 });
+  }
+  return Response.json({ source: result });
+}
+
+/** 获取频道健康评分 */
+export async function handleHealthScore(request, env) {
+  const url = new URL(request.url);
+  const channel = url.searchParams.get('channel');
+
+  if (!channel) {
+    // 返回整体分布
+    const channels = await getJSON(env, KV_KEYS.CHANNELS) || [];
+    const distribution = getHealthScoreDistribution(channels);
+    return Response.json(distribution);
+  }
+
+  const channels = await getJSON(env, KV_KEYS.CHANNELS) || [];
+  const ch = channels.find((c) => c.normalized_name === channel || c.name === channel);
+  if (!ch) {
+    return Response.json({ error: 'channel not found' }, { status: 404 });
+  }
+
+  const score = computeChannelHealthScore(ch);
+  const level = getHealthLevel(score);
+  return Response.json({ channel: ch.normalized_name, score, level });
+}
+
+/** 源发现历史 */
+export async function handleSourceDiscovery(request, env) {
+  const history = await getSourceDiscoveryHistory(env);
+  return Response.json(history);
+}
+
+/** 触发源发现 */
+export async function handleTriggerDiscovery(env) {
+  const result = await discoverAndEvaluateSources(env);
+  return Response.json(result);
 }

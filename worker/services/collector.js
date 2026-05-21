@@ -12,33 +12,52 @@ import {
 } from './validator.js';
 import { generateAndCacheEPG } from './epg.js';
 import { syncChannelsToD1, logCronRun } from './db.js';
+import { enrichChannelLogos } from './logo.js';
+import { batchRecordValidationResults } from './validationHistory.js';
+import { batchRecordSourceTests, recordSourceTest } from './sourceManager.js';
+import { computeBatchHealthScores, getHealthScoreDistribution } from './healthScore.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('collector');
 const PL = () => config.PIPELINE || {};
 
-export async function collectSources() {
+export async function collectSources(env) {
   const allEntries = [];
   const maxRaw = PL().maxRawEntries ?? 4000;
   const sourceList = [...(config.SOURCE_LIST || []), ...(config.MIGU_SOURCE_LIST || [])];
+  const sourceResults = []; // 用于记录源测试结果
 
   const results = await Promise.allSettled(
     sourceList.map(async (item) => {
-      if (typeof item === 'string') {
-        const label = sourceLabelFromUrl(item);
-        const text = await fetchText(item);
+      const url = typeof item === 'string' ? item : item.url;
+      const label = typeof item === 'string' ? sourceLabelFromUrl(item) : item.source || 'custom';
+      const start = Date.now();
+
+      try {
+        const text = await fetchText(url);
         const parsed = parseM3U(text, label);
-        return filterInvalidEntries(parsed);
+        const filtered = filterInvalidEntries(parsed);
+        const latency = Date.now() - start;
+
+        // 记录源测试结果
+        sourceResults.push({ url, label, success: true, latency, channel_count: filtered.length });
+        return filtered;
+      } catch (err) {
+        sourceResults.push({ url, label, success: false, latency: Date.now() - start });
+        log.warn('源拉取失败', { url, label, error: String(err) });
+        return [];
       }
-      return normalizeCuratedSourceItem(item);
     }),
   );
 
+  // 批量记录源测试结果
+  if (env && sourceResults.length > 0) {
+    await batchRecordSourceTests(env, sourceResults);
+  }
+
   for (const r of results) {
-    if (r.status === 'fulfilled') {
+    if (r.status === 'fulfilled' && r.value.length > 0) {
       allEntries.push(...r.value);
-    } else {
-      log.warn('源拉取失败', { error: String(r.reason) });
     }
   }
 
@@ -267,31 +286,40 @@ export async function applyLiteValidation(channels) {
 }
 
 async function persistChannels(env, alive, meta = {}) {
-  const playlist = buildM3U(alive, (ch) => {
+  // Logo 自动补全
+  const logoResult = await enrichChannelLogos(alive, env);
+  const enrichedChannels = logoResult.channels;
+
+  // 计算健康评分
+  const scoredChannels = computeBatchHealthScores(enrichedChannels);
+  const healthDistribution = getHealthScoreDistribution(scoredChannels);
+
+  const playlist = buildM3U(scoredChannels, (ch) => {
     // 优先选择策略：healthy/unstable 的 HTTPS 源 > healthy/unstable 的 HTTP 源 > 其他
     const httpsSources = ch.sources?.filter((x) => x.url.startsWith('https://')) || [];
     const httpSources = ch.sources?.filter((x) => x.url.startsWith('http://')) || [];
-    
+
     // 先找健康的 HTTPS 源
     const healthyHttps = httpsSources.find((x) => x.status === 'healthy' || x.status === 'unstable');
     if (healthyHttps) return healthyHttps.url;
-    
+
     // 再找健康的 HTTP 源
     const healthyHttp = httpSources.find((x) => x.status === 'healthy' || x.status === 'unstable');
     if (healthyHttp) return healthyHttp.url;
-    
+
     // 最后兜底：任意非 dead 源
     const nonDead = ch.sources?.find((x) => x.status !== 'dead');
     if (nonDead) return nonDead.url;
-    
+
     // 最终兜底：第一个源
     return ch.sources?.[0]?.url;
   });
-  const health = summarizeHealth(alive);
+  const health = summarizeHealth(scoredChannels);
   health.pipeline_mode = meta.pipeline_mode || 'fast';
   health.schema_version = config.DATA_SCHEMA_VERSION || 1;
-  health.playlist_ready = alive.length > 0;
-  health.playable_channels = alive.length;
+  health.playlist_ready = scoredChannels.length > 0;
+  health.playable_channels = scoredChannels.length;
+  health.health_distribution = healthDistribution;
   if (meta.filtered_out != null) {
     health.filtered_out = meta.filtered_out;
   }
@@ -301,14 +329,19 @@ async function persistChannels(env, alive, meta = {}) {
       ? '已过滤无响应源，M3U 仅含测速通过的频道'
       : '轻量测速后暂无可用源，请检查 SOURCE_LIST 或稍后重试');
 
-  const embeddings = buildEmbeddingIndex(alive.slice(0, 200));
+  const embeddings = buildEmbeddingIndex(scoredChannels.slice(0, 200));
 
   await setKV(env, KV_KEYS.PLAYLIST, playlist, config.KV_TTL.playlist);
-  await setJSON(env, KV_KEYS.CHANNELS, alive, 'channels');
+  await setJSON(env, KV_KEYS.CHANNELS, scoredChannels, 'channels');
   await setJSON(env, KV_KEYS.HEALTH, health, 'health');
   await setJSON(env, KV_KEYS.EMBEDDINGS, embeddings, 'embeddings');
 
-  return { channels: alive, health, playlist };
+  // 记录测速历史
+  if (scoredChannels.length > 0) {
+    await batchRecordValidationResults(env, scoredChannels);
+  }
+
+  return { channels: scoredChannels, health, playlist };
 }
 
 /** 轻量流水线：采集 → 去重 → 轻量测速 → 过滤失效源 */
@@ -318,7 +351,7 @@ export async function runFastPipeline(env) {
   log.info('开始快速采集流水线');
 
   try {
-    const rawEntries = await collectSources();
+    const rawEntries = await collectSources(env);
     log.info('原始条目', { count: rawEntries.length });
 
     let channels = await processChannelsWithAI(rawEntries, { fast: true });
@@ -410,7 +443,7 @@ export async function runFullPipeline(env, options = {}) {
   log.info('开始完整采集流水线', { skipValidation });
 
   try {
-    const rawEntries = await collectSources();
+    const rawEntries = await collectSources(env);
     let channels = await processChannelsWithAI(rawEntries, { fast: true });
     channels.sort((a, b) => channelPriorityScore(b) - channelPriorityScore(a));
 

@@ -108,10 +108,12 @@ export async function updateUserPreferences(env, userId, prefs) {
 function defaultPreferences() {
   return {
     favorite_categories: [],
+    favorite_channels: [], // 收藏频道列表（标准化名称）
     preferred_region: '',
     preferred_quality: 'HD',
     blocked_channels: [],
     preferred_isp: '',
+    show_health_score: true, // 是否在推荐中显示健康评分
   };
 }
 

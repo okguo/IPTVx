@@ -13,6 +13,10 @@ export const KV_KEYS = {
   USER_PREFIX: 'user:',
   SESSION_PREFIX: 'session:',
   APIKEY_PREFIX: 'apikey:',
+  VALIDATION_HISTORY: 'validation:history',
+  SOURCE_STATS: 'source:stats',
+  LOGO_CACHE: 'logo:cache',
+  SOURCE_DISCOVERY: 'source:discovery',
 };
 
 function kv(env) {

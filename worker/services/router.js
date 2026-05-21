@@ -1,4 +1,5 @@
 import config from '../../config/config.js';
+import { getSourceHistoryScore } from './validationHistory.js';
 
 /**
  * 边缘智能路由：国家 / Colo / ISP (cf.asOrganization) 综合打分
@@ -73,7 +74,7 @@ function computeSourceScore(source, ctx) {
     score += 8;
   }
 
-  // 历史质量加权
+  // 历史质量加权（从 validation history 获取）
   if (source.history_score) score += Math.round(source.history_score * 20);
 
   return score;

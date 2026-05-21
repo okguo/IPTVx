@@ -3,6 +3,7 @@ import { getJSON, KV_KEYS } from '../utils/cache.js';
 import { rankSources } from './router.js';
 import { channelId } from './recommend.js';
 import { validateSource } from './validator.js';
+import { computeSourceHealthScore, getHealthLevel } from './healthScore.js';
 
 /**
  * 高级多源 fallback：主源失败自动切换备用源
@@ -60,3 +61,104 @@ export function getBaseUrl(request) {
   const url = new URL(request.url);
   return `${url.protocol}//${url.host}`;
 }
+
+/**
+ * HLS 代理中转：代理 M3U8 播放列表内容
+ * 当直连失败时自动走 Cloudflare 代理，提升可播放率
+ */
+export async function proxyHlsStream(request, streamUrl, options = {}) {
+  const maxRedirects = options.maxRedirects ?? 5;
+  const timeout = options.timeout ?? 10000;
+
+  try {
+    const response = await fetch(streamUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'IPTVx-Player/1.0',
+        'Referer': new URL(streamUrl).origin,
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(timeout),
+      cf: {
+        cacheTtl: 0,
+        cacheEverything: false,
+      },
+    });
+
+    if (!response.ok) {
+      return {
+        error: 'stream_unavailable',
+        status: response.status,
+        url: streamUrl,
+      };
+    }
+
+    const contentType = response.headers.get('Content-Type') || '';
+    const body = await response.arrayBuffer();
+
+    // 如果是 M3U8 文件，重写其中的相对路径
+    if (contentType.includes('vnd.apple.mpegurl') || contentType.includes('x-mpegurl') || streamUrl.includes('.m3u8')) {
+      const text = new TextDecoder().decode(body);
+      const rewritten = rewriteM3u8Urls(text, streamUrl);
+      return new Response(rewritten, {
+        headers: {
+          'Content-Type': 'application/vnd.apple.mpegurl',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-cache',
+        },
+      });
+    }
+
+    // 其他内容类型直接返回
+    return new Response(body, {
+      headers: {
+        'Content-Type': contentType || 'application/octet-stream',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-cache',
+      },
+    });
+  } catch (err) {
+    return {
+      error: 'proxy_failed',
+      message: String(err),
+      url: streamUrl,
+    };
+  }
+}
+
+/**
+ * 重写 M3U8 中的相对路径为代理 URL
+ */
+function rewriteM3u8Urls(m3u8Content, baseUrl) {
+  const base = new URL(baseUrl);
+  const baseUrlObj = `${base.protocol}//${base.host}`;
+
+  return m3u8Content.split('\n').map((line) => {
+    // 跳过注释和 EXTINF 行
+    if (line.startsWith('#')) return line;
+    if (!line.trim()) return line;
+
+    // 如果是相对路径，转换为绝对路径
+    if (line.startsWith('./') || line.startsWith('../') || !line.startsWith('http')) {
+      try {
+        const absolute = new URL(line, baseUrl).toString();
+        return absolute;
+      } catch {
+        return line;
+      }
+    }
+
+    return line;
+  }).join('\n');
+}
+
+/**
+ * 获取源的代理 URL
+ */
+export function buildProxyUrl(request, channel, sourceUrl) {
+  const baseUrl = getBaseUrl(request);
+  const channelId = encodeURIComponent(channel.normalized_name || channel.name);
+  const encodedUrl = encodeURIComponent(sourceUrl);
+  return `${baseUrl}${config.STREAM.proxyPath}/${channelId}?url=${encodedUrl}`;
+}
+

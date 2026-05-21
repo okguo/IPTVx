@@ -5,12 +5,22 @@ import {
   handleStats,
   handleDashboard,
   handleMetrics,
+  handleValidationTrend,
+  handleSourceReport,
+  handleActiveSources,
+  handleSetSourceStatus,
+  handleHealthScore,
+  handleSourceDiscovery,
+  handleTriggerDiscovery,
 } from './routes/api.js';
 import { handleRegister, handleLogin } from './routes/auth.js';
 import {
   handleGetPreferences,
   handlePutPreferences,
   handleRecommendations,
+  handleAddFavorite,
+  handleRemoveFavorite,
+  handleGetFavorites,
 } from './routes/user.js';
 import { handleStream, handleStreamPlaylist } from './routes/stream.js';
 import { handleAdminApi, handleAdminPage } from './routes/admin.js';
@@ -29,6 +39,13 @@ const ROUTES = [
   { method: 'GET', path: '/api/stats', handler: (req, env) => handleStats(env) },
   { method: 'GET', path: '/api/metrics', handler: (req, env) => handleMetrics(env) },
   { method: 'GET', path: '/api/recommend', handler: (req, env, ctx) => handleRecommendations(req, env, ctx) },
+  { method: 'GET', path: '/api/validation/trend', handler: (req, env) => handleValidationTrend(req, env) },
+  { method: 'GET', path: '/api/source/report', handler: (req, env) => handleSourceReport(req, env) },
+  { method: 'GET', path: '/api/source/active', handler: (req, env) => handleActiveSources(req, env) },
+  { method: 'POST', path: '/api/source/status', handler: (req, env) => handleSetSourceStatus(req, env) },
+  { method: 'GET', path: '/api/health/score', handler: (req, env) => handleHealthScore(req, env) },
+  { method: 'GET', path: '/api/source/discovery', handler: (req, env) => handleSourceDiscovery(req, env) },
+  { method: 'POST', path: '/api/source/discovery', handler: (req, env) => handleTriggerDiscovery(env) },
   { method: 'GET', path: '/dashboard', handler: (req, env) => handleDashboard(env) },
   { method: 'GET', path: '/player', handler: (req) => handlePlayerPage(req) },
   { method: 'GET', path: '/admin', handler: (req, env) => handleAdminPage(env) },
@@ -36,6 +53,9 @@ const ROUTES = [
   { method: 'POST', path: '/api/auth/login', handler: (req, env) => handleLogin(req, env) },
   { method: 'GET', path: '/api/user/preferences', handler: (req, env, ctx) => handleGetPreferences(req, env, ctx) },
   { method: 'PUT', path: '/api/user/preferences', handler: (req, env, ctx) => handlePutPreferences(req, env, ctx) },
+  { method: 'POST', path: '/api/user/favorites', handler: (req, env, ctx) => handleAddFavorite(req, env, ctx) },
+  { method: 'DELETE', path: '/api/user/favorites', handler: (req, env, ctx) => handleRemoveFavorite(req, env, ctx) },
+  { method: 'GET', path: '/api/user/favorites', handler: (req, env, ctx) => handleGetFavorites(req, env, ctx) },
   { method: 'GET', path: '/api/stream/playlist', handler: (req, env, ctx) => handleStreamPlaylist(req, env, ctx) },
 ];
 
@@ -77,9 +97,15 @@ export default {
             '/api/auth/register',
             '/api/auth/login',
             '/api/user/preferences',
+            '/api/user/favorites',
             '/api/recommend',
             '/api/stream/{channelId}',
             '/api/metrics',
+            '/api/validation/trend',
+            '/api/source/report',
+            '/api/source/active',
+            '/api/health/score',
+            '/api/source/discovery',
           ],
         },
         { status: 404 },

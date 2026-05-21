@@ -5,53 +5,64 @@ export function hasD1(env) {
   return Boolean(env.DB);
 }
 
-/** 将 KV 频道数据同步到 D1 */
+/** 将 KV 频道数据同步到 D1（批量 UPSERT 优化） */
 export async function syncChannelsToD1(env, channels) {
   if (!hasD1(env) || !channels?.length) return;
 
   const db = env.DB;
-  for (const ch of channels) {
-    const existing = await db
-      .prepare('SELECT id FROM channels WHERE normalized_name = ?')
-      .bind(ch.normalized_name)
-      .first();
 
-    let channelId = existing?.id;
-    if (!channelId) {
-      const r = await db
-        .prepare(
-          `INSERT INTO channels (name, normalized_name, category, region, group_title, logo, tags)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .bind(
-          ch.name,
-          ch.normalized_name,
-          ch.category || '',
-          ch.region || '',
-          ch.group || '',
-          ch.logo || '',
-          JSON.stringify(ch.tags || []),
-        )
-        .run();
-      channelId = r.meta.last_row_id;
-    } else {
-      await db
-        .prepare(
-          `UPDATE channels SET name=?, category=?, region=?, logo=?, tags=?, updated_at=datetime('now') WHERE id=?`,
-        )
-        .bind(ch.name, ch.category, ch.region, ch.logo, JSON.stringify(ch.tags || []), channelId)
-        .run();
-      await db.prepare('DELETE FROM streams WHERE channel_id = ?').bind(channelId).run();
+  // 批量处理，每批 50 条
+  const batchSize = 50;
+  for (let i = 0; i < channels.length; i += batchSize) {
+    const batch = channels.slice(i, i + batchSize);
+
+    // 使用批量 UPSERT
+    const values = batch.map((ch) =>
+      `('${dbEscape(ch.name)}','${dbEscape(ch.normalized_name)}','${dbEscape(ch.category || '')}','${dbEscape(ch.region || '')}','${dbEscape(ch.group || '')}','${dbEscape(ch.logo || '')}','${dbEscape(JSON.stringify(ch.tags || []))}')`,
+    ).join(',');
+
+    await db.prepare(
+      `INSERT INTO channels (name, normalized_name, category, region, group_title, logo, tags)
+       VALUES ${values}
+       ON CONFLICT(normalized_name) DO UPDATE SET
+         name=excluded.name,
+         category=excluded.category,
+         region=excluded.region,
+         logo=excluded.logo,
+         tags=excluded.tags,
+         updated_at=datetime('now')`,
+    ).run();
+
+    // 批量删除旧 streams 并插入新 streams
+    const channelIds = await Promise.all(
+      batch.map((ch) =>
+        db.prepare('SELECT id FROM channels WHERE normalized_name = ?').bind(ch.normalized_name).first(),
+      ),
+    );
+
+    const streamValues = [];
+    for (let j = 0; j < batch.length; j++) {
+      const ch = batch[j];
+      const channelId = channelIds[j]?.id;
+      if (!channelId) continue;
+
+      for (const [k, s] of (ch.sources || []).entries()) {
+        streamValues.push(
+          `(${channelId},'${dbEscape(s.url)}','${dbEscape(s.source)}',${s.latency ?? 'NULL'},'${dbEscape(s.status)}',${s.success_rate ?? 1},${k})`,
+        );
+      }
     }
 
-    for (const [i, s] of (ch.sources || []).entries()) {
-      await db
-        .prepare(
-          `INSERT INTO streams (channel_id, url, source, latency, status, success_rate, priority)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .bind(channelId, s.url, s.source, s.latency, s.status, s.success_rate ?? 1, i)
-        .run();
+    if (streamValues.length > 0) {
+      const idsToDelete = channelIds.filter(Boolean).map((r) => r.id).join(',');
+      if (idsToDelete) {
+        await db.prepare(`DELETE FROM streams WHERE channel_id IN (${idsToDelete})`).run();
+      }
+
+      await db.prepare(
+        `INSERT INTO streams (channel_id, url, source, latency, status, success_rate, priority)
+         VALUES ${streamValues.join(',')}`,
+      ).run();
     }
   }
 }
@@ -109,4 +120,10 @@ export async function getChannelsFromD1(env) {
     tags: row.tags ? JSON.parse(row.tags) : [],
     sources: (row.urls || '').split(',').filter(Boolean).map((url) => ({ url, status: 'healthy' })),
   }));
+}
+
+/** 转义 SQL 字符串（防止 SQL 注入） */
+function dbEscape(str) {
+  if (str == null) return '';
+  return String(str).replace(/'/g, "''");
 }

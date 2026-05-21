@@ -20,7 +20,16 @@
 | 📺 **智能分类** | 央视频道 / 卫视频道 / 港澳台 / 体育 / 影视 / 少儿动漫 | 📺 **Smart Categorization** | CCTV / Satellite TV / HK-Macau-TW / Sports / Movies / Kids |
 | 🏷️ **白名单过滤** | 只保留高价值频道，自动剔除低质量/失效频道 | 🏷️ **Whitelist Filtering** | Only keep high-value channels, auto-filter low-quality/dead ones |
 | ⏰ **Cron 自动更新** | 每小时自动刷新频道和源状态 | ⏰ **Cron Auto-refresh** | Hourly auto-refresh of channels and source status |
-| 🌐 **EPG 支持** | 聚合 iptv-org EPG 数据 | 🌐 **EPG Support** | Aggregated iptv-org EPG data |
+| 🌐 **EPG 增强** | 聚合 iptv-org EPG，智能 XMLTV ID 映射 + 占位节目 | 🌐 **Enhanced EPG** | Aggregated EPG with smart XMLTV ID mapping + fallback programmes |
+| 📊 **健康评分** | 综合成功率、延迟、源数量计算 0-100 健康分 | 📊 **Health Score** | 0-100 score from success rate, latency, source count |
+| 📈 **测速历史** | 持久化测速结果，支持频道健康趋势分析 | 📈 **Validation History** | Persisted validation with channel health trend analysis |
+| 🔍 **源管理** | 失效源自动剔除、源质量报告、手动控制 | 🔍 **Source Management** | Auto-remove dead sources, quality reports, manual control |
+| 🌍 **智能路由** | 基于地区/ISP 的智能源路由 + fallback 代理 | 🌍 **Smart Routing** | Region/ISP-based source routing + fallback proxy |
+| 🖼️ **Logo 补全** | 自动补全频道图标（iptv-org logos） | 🖼️ **Logo Enrichment** | Auto-complete channel logos from iptv-org |
+| ⭐ **收藏系统** | 用户收藏频道、个性化推荐 | ⭐ **Favorites** | User channel favorites, personalized recommendations |
+| 🔗 **HLS 代理** | 主源失败时自动代理中转 M3U8 流 | 🔗 **HLS Proxy** | Auto-proxy M3U8 when direct connection fails |
+| 🔎 **源发现** | 自动扫描 GitHub IPTV 仓库发现新源 | 🔎 **Source Discovery** | Auto-scan GitHub IPTV repos for new sources |
+| 🧠 **LLM 支持** | 可选 LLM 模式进行智能频道分类 | 🧠 **LLM Support** | Optional LLM mode for smart channel classification |
 | 💾 **零托管成本** | 完全运行在 Cloudflare 免费套餐上 | 💾 **Zero Hosting Cost** | Runs entirely on Cloudflare's free tier |
 
 ---
@@ -118,14 +127,31 @@ https://<your-domain>/iptv.m3u
 
 ### API Endpoints / 接口
 
-| Endpoint | Description / 说明 |
-|----------|-------------------|
-| `GET /iptv.m3u` | M3U 播放列表 / Playlist |
-| `GET /epg.xml` | EPG 节目单 / Electronic Program Guide |
-| `GET /health` | 服务健康状态 / Health check |
-| `GET /api/stats` | 频道统计 / Channel statistics |
-| `GET /api/admin/cron/status` | Cron 执行状态（需 API Key）/ Cron status |
-| `POST /api/admin/cron/trigger` | 手动触发采集（需 API Key）/ Manual trigger |
+| Endpoint | Method | Description / 说明 |
+|----------|--------|-------------------|
+| `GET /iptv.m3u` | GET | M3U 播放列表（支持 `?proxy=1` 代理模式） |
+| `GET /epg.xml` | GET | EPG 节目单 |
+| `GET /health` | GET | 服务健康状态 |
+| `GET /api/stats` | GET | 频道统计 |
+| `GET /api/metrics` | GET | 访问指标（7 天趋势） |
+| `GET /api/recommend` | GET | 个性化推荐 |
+| `GET /api/validation/trend?channel=CCTV1` | GET | 频道测速趋势 |
+| `GET /api/source/report` | GET | 源质量报告 |
+| `GET /api/source/active` | GET | 活跃源列表 |
+| `POST /api/source/status?url=xxx&status=active` | POST | 设置源状态 |
+| `GET /api/health/score` | GET | 健康评分分布 |
+| `GET /api/health/score?channel=CCTV1` | GET | 单频道健康评分 |
+| `GET /api/source/discovery` | GET | 源发现历史 |
+| `POST /api/source/discovery` | POST | 触发源发现 |
+| `GET /api/user/favorites` | GET | 收藏频道列表 |
+| `POST /api/user/favorites` | POST | 添加收藏 |
+| `DELETE /api/user/favorites` | DELETE | 移除收藏 |
+| `GET /api/stream/{channelId}` | GET | 流代理（支持 `?proxy=1`） |
+| `GET /dashboard` | GET | Web 仪表盘 |
+| `GET /player` | GET | Web 播放器 |
+| `GET /admin` | GET | 管理后台 |
+| `GET /api/admin/cron/status` | GET | Cron 状态（需 API Key） |
+| `POST /api/admin/cron/trigger` | POST | 手动触发采集（需 API Key） |
 
 ---
 
@@ -284,13 +310,33 @@ IPTVx/
 │   ├── routes/
 │   │   ├── api.js             # RESTful API 路由
 │   │   ├── epg.js             # EPG 生成路由
-│   │   └── m3u.js             # M3U 播放列表路由
+│   │   ├── m3u.js             # M3U 播放列表路由
+│   │   ├── stream.js          # 流代理路由
+│   │   ├── user.js            # 用户偏好/收藏路由
+│   │   ├── auth.js            # 认证路由
+│   │   ├── player.js          # 播放器页面
+│   │   └── admin.js           # 管理后台
 │   ├── services/
 │   │   ├── ai.js              # AI 频道标准化/分类/去重
 │   │   ├── aiAdvanced.js      # 高级 AI 处理
+│   │   ├── aiLLM.js           # LLM 模式接入
 │   │   ├── collector.js       # 多源聚合 + 咖啡直播爬取
 │   │   ├── epg.js             # EPG 生成逻辑
-│   │   └── validator.js       # 频道健康检查/测速
+│   │   ├── validator.js       # 频道健康检查/测速
+│   │   ├── validationHistory.js # 测速历史持久化
+│   │   ├── sourceManager.js   # 源池管理
+│   │   ├── sourceDiscovery.js # 源自动发现
+│   │   ├── healthScore.js     # 健康评分体系
+│   │   ├── logo.js            # Logo 自动补全
+│   │   ├── fallback.js        # 流 fallback + HLS 代理
+│   │   ├── router.js          # 智能源路由
+│   │   ├── recommend.js       # 个性化推荐
+│   │   ├── metrics.js         # 访问指标
+│   │   ├── auth.js            # 认证服务
+│   │   ├── bootstrap.js       # 自动引导
+│   │   └── db.js              # D1 数据库同步
+│   ├── middleware/
+│   │   └── request.js         # 请求中间件
 │   └── utils/
 │       ├── cache.js           # KV 缓存操作
 │       ├── crypto.js          # 加密工具
